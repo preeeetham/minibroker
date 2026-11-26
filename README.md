@@ -19,7 +19,6 @@ shutdown, and profiler-driven optimizations with before/after numbers.
 
 ![minibroker architecture](docs/architecture.png)
 
-<sub>Drawn in Excalidraw. Edit [`docs/architecture.excalidraw`](docs/architecture.excalidraw) at excalidraw.com.</sub>
 
 * **One Tokio task per connection** reads and parses frames. A second
   task per connection owns the write half and drains a **bounded queue**.
