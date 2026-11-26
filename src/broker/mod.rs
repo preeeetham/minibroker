@@ -36,7 +36,7 @@ impl Default for Config {
             tcp_nodelay: true,
             shutdown_grace: Duration::from_secs(5),
             listen_backlog: 1024,
-            slow_drop_limit: 0,
+            slow_drop_limit: 1000,
         }
     }
 }

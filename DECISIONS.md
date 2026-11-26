@@ -330,3 +330,65 @@ messages, publisher batching flushes every 256 frames:
 
 The writer currently issues **one `write()` syscall per message per
 subscriber**. That's the first suspect for P12.
+
+---
+
+## P7 — Slow subscribers and backpressure
+
+### D39. Policy: bounded queue → drop newest → disconnect after N consecutive drops
+* **Decision:** each client has a bounded queue (`--queue`, default 1024
+  frames). When it's full, the new message is dropped *for that client
+  only*. After `--slow-drop-limit` consecutive drops (default 1000), the
+  client is disconnected with `ERROR SlowConsumer`. A successful enqueue
+  resets the streak, so brief slowness is tolerated
+  (`brief_slowness_is_tolerated` test).
+* *Alternatives considered:*
+  * **Block the publisher** (`send().await`): one stuck phone on a bad
+    network stalls every publisher feeding it, and transitively every
+    other subscriber of those publishers. Unacceptable for a shared broker.
+  * **Unbounded queue:** never drops, but a stalled client grows broker
+    memory until the OOM killer ends *everyone's* connection.
+  * **Drop oldest** (ring buffer, keep the freshest data): arguably better
+    for telemetry, where the latest reading matters most. But tokio's mpsc
+    can't evict from the front. It would need a custom queue, so it's
+    left as a future option.
+  * **Disconnect immediately on the first drop:** too twitchy. A GC pause
+    or Wi-Fi hiccup on the client would cause a reconnect storm.
+* **Why this combination:** memory per client is bounded (queue ×
+  frame size), publishers never wait, and a client that is *permanently*
+  behind is removed instead of silently receiving 0.1% of its messages
+  forever. `--slow-drop-limit 0` keeps drop-only behaviour.
+
+### D40. The writer races `write_all` against the kill signal
+* **Why:** a slow consumer's kernel send buffer is full, so `write_all`
+  waits *forever*. That's the exact state we need to break out of.
+  Killing only the reader isn't enough: the writer task (and the client's
+  queue memory) would linger until the peer read something.
+* **Subtlety:** if `write_all` is cancelled mid-frame, the peer has
+  received a partial frame. Appending an ERROR frame after that would be
+  garbage to its parser, so the writer only sends `ERROR SlowConsumer`
+  when the kill arrived *between* frames. Otherwise it just closes the socket.
+
+### D41. All "last words" writes are bounded by a 1 s timeout
+* **Why:** farewell frames (protocol error, shutdown) go into the client's
+  queue, and if the client is stuck that queue is full. Without a timeout,
+  a stuck client could delay its own teardown indefinitely.
+
+### D42. A reset socket is an I/O event, not a protocol error
+* Found while measuring: clients that exit abruptly cause ECONNRESET on
+  read. That was being logged at WARN as a "protocol error", and the broker
+  tried to send an ERROR frame to a dead socket. Socket errors now have
+  their own close reason (`Close::Io`), logged at INFO, with no farewell.
+
+### Measured
+* `examples/slow_consumer.rs`: 20 000 × 1 KiB messages to a fast subscriber,
+  with and without a stalled subscriber (4 KiB receive buffer, never reads)
+  on the same topic. 3 runs each:
+  * no stalled peer: 300k–432k msg/s
+  * with stalled peer: 382k–460k msg/s
+  
+  The ranges overlap, so the stalled peer has **no measurable effect** on
+  the fast path.
+* `tests/backpressure.rs`: with queue = 64 and drop limit = 100, a stalled
+  subscriber is disconnected while a lock-step publisher/fast subscriber
+  pair moves 2 000 × 16 KiB messages (32 MiB) without being slowed.

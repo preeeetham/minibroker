@@ -28,6 +28,10 @@ struct Args {
     /// listen() backlog (capped by the kernel's somaxconn).
     #[arg(long, default_value_t = 1024)]
     backlog: u32,
+    /// Disconnect a subscriber after this many consecutive dropped
+    /// messages (0 = only drop, never disconnect).
+    #[arg(long, default_value_t = 1000)]
+    slow_drop_limit: u32,
 }
 
 #[tokio::main]
@@ -45,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         tcp_nodelay: !args.nagle,
         shutdown_grace: Duration::from_secs(args.grace_secs),
         listen_backlog: args.backlog,
-        ..Config::default()
+        slow_drop_limit: args.slow_drop_limit,
     };
 
     let server = Server::bind(&args.addr, config)

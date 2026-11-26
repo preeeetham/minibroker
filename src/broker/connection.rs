@@ -18,6 +18,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures::StreamExt;
@@ -35,6 +36,9 @@ use crate::protocol::codec::encode_publish;
 use crate::protocol::topic::{validate_filter, validate_topic};
 use crate::protocol::{ErrorCode, Frame, FrameCodec, ProtocolError};
 
+/// Upper bound on any single "last words" write to a closing client.
+const FAREWELL_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// Why a connection ended.
 #[derive(Debug)]
 enum Close {
@@ -42,10 +46,14 @@ enum Close {
     PeerClosed,
     /// The peer sent bytes we couldn't parse.
     Protocol(ProtocolError),
+    /// Reading the socket failed (typically ECONNRESET: the peer vanished).
+    Io(std::io::Error),
     /// Broker shutdown was requested.
     Shutdown,
     /// The writer stopped (socket error, or the peer reset the connection).
     WriterGone,
+    /// The router disconnected us: too many messages dropped in a row (P7).
+    SlowConsumer,
 }
 
 /// Handles that let other tasks reach this connection.
@@ -69,11 +77,11 @@ pub(crate) async fn run(
 
     let (rd, wr) = stream.into_split();
     let (tx, rx) = mpsc::channel::<Bytes>(cfg.outbound_queue);
-    let writer_done = CancellationToken::new();
-    let writer = tokio::spawn(write_loop(wr, rx, writer_done.clone()));
-
     // Fired by the router when this client is too slow (P7).
     let kill = CancellationToken::new();
+    let writer_done = CancellationToken::new();
+    let writer = tokio::spawn(write_loop(wr, rx, kill.clone(), writer_done.clone()));
+
     shared.router.register(id, tx.clone(), kill.clone());
 
     let outbox = Outbox { tx };
@@ -84,15 +92,25 @@ pub(crate) async fn run(
             // Shutdown and writer failure win over buffered input.
             biased;
             _ = shutdown.cancelled() => break Close::Shutdown,
+            _ = kill.cancelled() => break Close::SlowConsumer,
             _ = writer_done.cancelled() => break Close::WriterGone,
             f = frames.next() => f,
         };
         let frame = match next {
             None => break Close::PeerClosed,
+            Some(Err(ProtocolError::Io(e))) => break Close::Io(e),
             Some(Err(e)) => break Close::Protocol(e),
             Some(Ok(f)) => f,
         };
-        if handle_frame(id, frame, &shared, &outbox).await.is_err() {
+        // handle_frame may wait on our own full queue (a PONG reply). If we
+        // get killed meanwhile, stop waiting. Cancelling it is safe: router
+        // calls are synchronous and finish before any await point.
+        let res = tokio::select! {
+            biased;
+            _ = kill.cancelled() => break Close::SlowConsumer,
+            r = handle_frame(id, frame, &shared, &outbox) => r,
+        };
+        if res.is_err() {
             break Close::WriterGone;
         }
     };
@@ -107,12 +125,15 @@ pub(crate) async fn run(
             code: ErrorCode::ShuttingDown,
             message: "broker shutting down".into(),
         }),
-        Close::PeerClosed | Close::WriterGone => None,
+        // The writer sends the SlowConsumer error itself: our queue is
+        // full, which is the whole problem.
+        Close::PeerClosed | Close::Io(_) | Close::WriterGone | Close::SlowConsumer => None,
     };
     if let Some(frame) = farewell
         && let Ok(bytes) = frame.to_bytes()
     {
-        let _ = outbox.tx.send(bytes).await;
+        // Bounded wait: a stuck client must not hold up its own teardown.
+        let _ = tokio::time::timeout(FAREWELL_TIMEOUT, outbox.tx.send(bytes)).await;
     }
 
     // Remove our subscriptions (and the router's clone of our sender), then
@@ -123,6 +144,8 @@ pub(crate) async fn run(
 
     match reason {
         Close::Protocol(e) => warn!(id, error = %e, "closing connection: protocol error"),
+        Close::SlowConsumer => warn!(id, "disconnected slow consumer"),
+        Close::Io(e) => info!(id, error = %e, "client disconnected (socket error)"),
         other => info!(id, reason = ?other, "client disconnected"),
     }
 }
@@ -186,12 +209,46 @@ async fn reply(outbox: &Outbox, frame: &Frame) -> Result<(), ()> {
 async fn write_loop(
     mut wr: OwnedWriteHalf,
     mut rx: mpsc::Receiver<Bytes>,
+    kill: CancellationToken,
     done: CancellationToken,
 ) {
-    while let Some(bytes) = rx.recv().await {
-        if let Err(e) = wr.write_all(&bytes).await {
+    // `true` if we were killed between frames, so the stream is still
+    // frame-aligned and we can append an ERROR frame.
+    let mut aligned_kill = false;
+    loop {
+        let bytes = tokio::select! {
+            biased;
+            _ = kill.cancelled() => {
+                aligned_kill = true;
+                break;
+            }
+            m = rx.recv() => match m {
+                Some(b) => b,
+                None => break,
+            },
+        };
+        // A slow consumer's kernel send buffer is full, so write_all can
+        // wait forever. Racing it against `kill` is what lets us actually
+        // get rid of the client.
+        let res = tokio::select! {
+            biased;
+            // Cancelled mid-frame: the peer has a partial frame, so we
+            // can't send anything else that it could parse. Just close.
+            _ = kill.cancelled() => break,
+            r = wr.write_all(&bytes) => r,
+        };
+        if let Err(e) = res {
             debug!(error = %e, "write failed");
             break;
+        }
+    }
+    if aligned_kill {
+        let err = Frame::Error {
+            code: ErrorCode::SlowConsumer,
+            message: "too many messages dropped; disconnecting".into(),
+        };
+        if let Ok(b) = err.to_bytes() {
+            let _ = tokio::time::timeout(FAREWELL_TIMEOUT, wr.write_all(&b)).await;
         }
     }
     // Send FIN so the peer sees a clean EOF after the last frame.

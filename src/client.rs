@@ -44,6 +44,11 @@ pub struct Client {
 impl Client {
     pub async fn connect(addr: impl ToSocketAddrs) -> Result<Self, ClientError> {
         let stream = TcpStream::connect(addr).await?;
+        Self::from_stream(stream)
+    }
+
+    /// Wrap an already-connected socket (e.g. one with custom buffer sizes).
+    pub fn from_stream(stream: TcpStream) -> Result<Self, ClientError> {
         stream.set_nodelay(true)?;
         Ok(Self {
             framed: Framed::new(stream, FrameCodec::default()),
