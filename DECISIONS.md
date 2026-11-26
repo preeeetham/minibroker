@@ -691,3 +691,40 @@ that came out of it:
 ### D62. Per-connection interval timers are fine at this scale
 * Measured: 1 000 idle connections → 46 syscalls in 10 s, 13 KiB RSS each,
   no extra threads. The timer wheel coalesces the frame-timeout ticks.
+
+---
+
+## P14 — Comparison with rumqttd
+
+### D63. Compare with the *same* load generator, speaking each broker's protocol
+* `tools/loadgen.py --protocol mqtt` adds a minimal MQTT 3.1.1 client
+  (CONNECT, SUBSCRIBE, QoS-0 PUBLISH, PINGREQ). Both brokers see identical
+  scenarios, payloads and timing. `tools/compare_rumqttd.py` starts a fresh
+  broker per run, **alternates** brokers, takes the median of 3 runs, and
+  samples broker CPU/RSS with `ps`.
+* rumqttd ran with its shipped router settings (`bench/rumqttd.toml`) and
+  only the v4 listener, so neither broker runs extra listeners.
+* rumqttd 0.20 didn't build on rustc 1.100: its locked dependency
+  `metrics 0.22.1` has a pointer cast that newer rustc rejects
+  (rust-lang/rust#141402). It was built with Rust 1.85 instead of patching
+  its dependencies.
+
+### Results (median of 3, 64 B)
+See README "Compared with rumqttd" and `bench/results/rumqttd_comparison.*`.
+* Latency: minibroker lower in all 5 scenarios. p99 for 8 publishers → 1
+  subscriber: 364 vs 1 149 µs.
+* CPU: minibroker lower for 1→1 and 8→1, *higher* for fan-out (4→4: 41%
+  vs 30%; 1→20: 25% vs 19%).
+* Memory: 4 MB vs 16–199 MB.
+
+### What I take from it
+* rumqttd's design (one router thread, commit-log segments) **trades
+  memory and some latency for fan-out efficiency and replayability**.
+  minibroker routes on the publisher's task and keeps no history, so it's
+  lighter and faster per message but spends more CPU when one message goes to
+  many subscribers. The next optimization for minibroker's fan-out CPU would
+  be reducing per-subscriber `try_send` cost (one atomic + wake per
+  subscriber per message), e.g. by waking writers once per batch.
+* The comparison is honest only with its caveats: rumqttd does much more
+  (full MQTT, QoS 1/2, sessions, auth, bridging). This measures the QoS-0
+  hot path, where minibroker is specialised.

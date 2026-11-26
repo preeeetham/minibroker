@@ -15,6 +15,10 @@ Two latencies are reported per message:
   also stalls the measurement of it. Under overload this number climbs
   without bound, which is the honest answer.
 
+Two wire protocols are supported, so the same workload can drive different
+brokers: ``--protocol minibroker`` (default) and ``--protocol mqtt`` (MQTT
+3.1.1, QoS 0), e.g. for Bytebeam's rumqttd.
+
 Example:
     python3 tools/loadgen.py --publishers 4 --subscribers 4 --rate 5000 \
         --duration 10 --size 64 --out bench/results/baseline
@@ -53,6 +57,101 @@ async def read_frame(r: asyncio.StreamReader) -> tuple[int, bytes]:
     return body[0], body[1:]
 
 
+# ---------------------------------------------------------------- MQTT 3.1.1
+# Just enough MQTT for QoS-0 pub/sub benchmarking.
+MQTT_CONNECT, MQTT_CONNACK, MQTT_PUBLISH = 1, 2, 3
+MQTT_SUBSCRIBE, MQTT_SUBACK, MQTT_PINGREQ, MQTT_PINGRESP = 8, 9, 12, 13
+
+
+def mqtt_varint(n: int) -> bytes:
+    out = bytearray()
+    while True:
+        b = n % 128
+        n //= 128
+        out.append(b | (0x80 if n else 0))
+        if not n:
+            return bytes(out)
+
+
+def mqtt_packet(ptype: int, flags: int, body: bytes) -> bytes:
+    return bytes([(ptype << 4) | flags]) + mqtt_varint(len(body)) + body
+
+
+async def mqtt_read(r: asyncio.StreamReader) -> tuple[int, bytes]:
+    first = (await r.readexactly(1))[0]
+    n, mult = 0, 1
+    while True:
+        b = (await r.readexactly(1))[0]
+        n += (b & 0x7F) * mult
+        if not b & 0x80:
+            break
+        mult *= 128
+    return first >> 4, await r.readexactly(n)
+
+
+class Proto:
+    """Wire-protocol adapter: minibroker's frames or MQTT 3.1.1."""
+
+    def __init__(self, name: str):
+        self.mqtt = name == "mqtt"
+        self._ids = 0
+
+    async def hello(self, r, w) -> None:
+        if not self.mqtt:
+            return
+        self._ids += 1
+        body = str16("MQTT") + bytes([4, 0x02]) + struct.pack(">H", 60)
+        body += str16(f"loadgen-{id(w)}-{self._ids}")
+        w.write(mqtt_packet(MQTT_CONNECT, 0, body))
+        await w.drain()
+        ptype, b = await mqtt_read(r)
+        if ptype != MQTT_CONNACK or b[1] != 0:
+            raise RuntimeError(f"CONNACK refused: {b!r}")
+
+    async def subscribe(self, r, w, filt: str) -> None:
+        if self.mqtt:
+            w.write(mqtt_packet(MQTT_SUBSCRIBE, 0x2, struct.pack(">H", 1) + str16(filt) + b"\0"))
+            await w.drain()
+            while True:
+                ptype, _ = await mqtt_read(r)
+                if ptype == MQTT_SUBACK:
+                    return
+        else:
+            w.write(frame(KIND_SUBSCRIBE, str16(filt)))
+            await barrier(r, w)
+
+    def publish(self, topic: str, payload: bytes) -> bytes:
+        if self.mqtt:
+            return mqtt_packet(MQTT_PUBLISH, 0, str16(topic) + payload)
+        return publish_frame(topic, payload)
+
+    async def read_message(self, r):
+        """Next delivered message as (topic_len, body) where the payload
+        starts at body[2 + topic_len], or None for other packet types."""
+        if self.mqtt:
+            ptype, body = await mqtt_read(r)
+            if ptype != MQTT_PUBLISH:
+                return None
+            (tlen,) = struct.unpack_from(">H", body, 0)
+            return tlen, body
+        kind, body = await read_frame(r)
+        if kind == KIND_ERROR:
+            raise RuntimeError(body[1:].decode(errors="replace"))
+        if kind != KIND_PUBLISH:
+            return None
+        (tlen,) = struct.unpack_from(">H", body, 0)
+        return tlen, body
+
+    async def barrier(self, r, w) -> None:
+        if self.mqtt:
+            w.write(mqtt_packet(MQTT_PINGREQ, 0, b""))
+            await w.drain()
+            while (await mqtt_read(r))[0] != MQTT_PINGRESP:
+                pass
+        else:
+            await barrier(r, w)
+
+
 async def connect(host: str, port: int):
     r, w = await asyncio.open_connection(host, port, limit=1 << 22)
     sock = w.get_extra_info("socket")
@@ -84,10 +183,10 @@ class SubStats:
     errors: list[str] = field(default_factory=list)
 
 
-async def subscriber(host, port, filt, stop_at_ns, warmup_until_ns, stats: SubStats, ready, t0_ns):
+async def subscriber(proto, host, port, filt, stop_at_ns, warmup_until_ns, stats: SubStats, ready, t0_ns):
     r, w = await connect(host, port)
-    w.write(frame(KIND_SUBSCRIBE, str16(filt)))
-    await barrier(r, w)
+    await proto.hello(r, w)
+    await proto.subscribe(r, w, filt)
     ready.set_result(None)
     last_seq: dict[int, int] = {}
     clock = time.perf_counter_ns
@@ -97,16 +196,16 @@ async def subscriber(host, port, filt, stop_at_ns, warmup_until_ns, stats: SubSt
             if remaining <= 0:
                 break
             try:
-                kind, body = await asyncio.wait_for(read_frame(r), timeout=remaining)
+                msg = await asyncio.wait_for(proto.read_message(r), timeout=remaining)
             except (asyncio.TimeoutError, asyncio.IncompleteReadError):
                 break
-            now = clock()
-            if kind == KIND_ERROR:
-                stats.errors.append(body[1:].decode(errors="replace"))
+            except RuntimeError as e:
+                stats.errors.append(str(e))
                 break
-            if kind != KIND_PUBLISH:
+            now = clock()
+            if msg is None:
                 continue
-            (tlen,) = struct.unpack_from(">H", body, 0)
+            tlen, body = msg
             sched, sent, pub, seq = HEADER.unpack_from(body, 2 + tlen)
             prev = last_seq.get(pub)
             if prev is not None and seq != prev + 1:
@@ -123,8 +222,9 @@ async def subscriber(host, port, filt, stop_at_ns, warmup_until_ns, stats: SubSt
         w.close()
 
 
-async def publisher(host, port, pub_id, rate, size, start_ns, stop_ns, sent_counter):
+async def publisher(proto, host, port, pub_id, rate, size, start_ns, stop_ns, sent_counter):
     r, w = await connect(host, port)
+    await proto.hello(r, w)
     topic = f"load/{pub_id}"
     pad = b"\0" * max(0, size - HEADER.size)
     interval_ns = 1e9 / rate
@@ -142,7 +242,7 @@ async def publisher(host, port, pub_id, rate, size, start_ns, stop_ns, sent_coun
             sent = clock()
             while seq < due:
                 sched = int(start_ns + seq * interval_ns)
-                batch.append(publish_frame(topic, HEADER.pack(sched, sent, pub_id, seq) + pad))
+                batch.append(proto.publish(topic, HEADER.pack(sched, sent, pub_id, seq) + pad))
                 seq += 1
             w.write(b"".join(batch))
             await w.drain()
@@ -150,7 +250,7 @@ async def publisher(host, port, pub_id, rate, size, start_ns, stop_ns, sent_coun
         # late, which is exactly what latency_from_schedule_us exposes).
         next_due = start_ns + seq * interval_ns
         await asyncio.sleep(max(0.0, (next_due - clock()) / 1e9))
-    await barrier(r, w)
+    await proto.barrier(r, w)
     sent_counter[pub_id] = seq
     w.close()
 
@@ -165,6 +265,7 @@ def percentile(sorted_vals: list[float], p: float) -> float:
 async def run(args) -> dict:
     loop = asyncio.get_running_loop()
     clock = time.perf_counter_ns
+    proto = Proto(args.protocol)
     t0 = clock()
     subs = [SubStats() for _ in range(args.subscribers)]
     readies = [loop.create_future() for _ in subs]
@@ -173,7 +274,7 @@ async def run(args) -> dict:
     stop_ns = start_ns + int(args.duration * 1e9)
     sub_tasks = [
         asyncio.create_task(
-            subscriber(args.host, args.port, args.filter, stop_ns, warmup_until, s, rd, t0)
+            subscriber(proto, args.host, args.port, args.filter, stop_ns, warmup_until, s, rd, t0)
         )
         for s, rd in zip(subs, readies)
     ]
@@ -181,7 +282,7 @@ async def run(args) -> dict:
     sent: dict[int, int] = {}
     pub_tasks = [
         asyncio.create_task(
-            publisher(args.host, args.port, i, args.rate, args.size, start_ns, stop_ns, sent)
+            publisher(proto, args.host, args.port, i, args.rate, args.size, start_ns, stop_ns, sent)
         )
         for i in range(args.publishers)
     ]
@@ -265,7 +366,8 @@ def plot(out: str, title: str, lat: list[float], timeline) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=7878)
+    ap.add_argument("--port", type=int, default=None, help="default 7878, or 1883 for mqtt")
+    ap.add_argument("--protocol", choices=["minibroker", "mqtt"], default="minibroker")
     ap.add_argument("--publishers", type=int, default=1)
     ap.add_argument("--subscribers", type=int, default=1)
     ap.add_argument("--rate", type=float, default=1000, help="messages/s per publisher")
@@ -278,6 +380,8 @@ def main() -> int:
     args = ap.parse_args()
     if args.size < HEADER.size:
         ap.error(f"--size must be >= {HEADER.size}")
+    if args.port is None:
+        args.port = 1883 if args.protocol == "mqtt" else 7878
 
     summary, lat, timeline = asyncio.run(run(args))
     print(json.dumps(summary, indent=2))

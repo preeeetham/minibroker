@@ -1,0 +1,1316 @@
+{
+ "rows": [
+  {
+   "scenario": "1\u21921 @ 10k/s",
+   "broker": "minibroker",
+   "delivered_per_sec": 10000.0,
+   "lost": 0,
+   "p50": 42.7,
+   "p99": 135.5,
+   "p999": 262.5,
+   "cpu": 8.395,
+   "rss": 3.671875
+  },
+  {
+   "scenario": "1\u21921 @ 10k/s",
+   "broker": "rumqttd",
+   "delivered_per_sec": 10000.0,
+   "lost": 0,
+   "p50": 54.0,
+   "p99": 157.6,
+   "p999": 283.2,
+   "cpu": 16.565,
+   "rss": 32.625
+  },
+  {
+   "scenario": "1\u21921 @ 50k/s",
+   "broker": "minibroker",
+   "delivered_per_sec": 49999.9,
+   "lost": 0,
+   "p50": 54.3,
+   "p99": 102.5,
+   "p999": 208.2,
+   "cpu": 19.014285714285712,
+   "rss": 3.78125
+  },
+  {
+   "scenario": "1\u21921 @ 50k/s",
+   "broker": "rumqttd",
+   "delivered_per_sec": 49999.9,
+   "lost": 0,
+   "p50": 69.0,
+   "p99": 161.9,
+   "p999": 568.2,
+   "cpu": 39.095238095238095,
+   "rss": 127.015625
+  },
+  {
+   "scenario": "4\u21924 @ 5k/s each",
+   "broker": "minibroker",
+   "delivered_per_sec": 80000.0,
+   "lost": 0,
+   "p50": 87.5,
+   "p99": 221.5,
+   "p999": 512.7,
+   "cpu": 41.21363636363636,
+   "rss": 3.96875
+  },
+  {
+   "scenario": "4\u21924 @ 5k/s each",
+   "broker": "rumqttd",
+   "delivered_per_sec": 80000.0,
+   "lost": 0,
+   "p50": 97.5,
+   "p99": 311.9,
+   "p999": 1052.8,
+   "cpu": 29.713636363636365,
+   "rss": 57.015625
+  },
+  {
+   "scenario": "1\u219220 @ 2k/s",
+   "broker": "minibroker",
+   "delivered_per_sec": 40000.0,
+   "lost": 0,
+   "p50": 198.5,
+   "p99": 318.0,
+   "p999": 527.7,
+   "cpu": 25.228571428571428,
+   "rss": 4.21875
+  },
+  {
+   "scenario": "1\u219220 @ 2k/s",
+   "broker": "rumqttd",
+   "delivered_per_sec": 40000.0,
+   "lost": 0,
+   "p50": 208.9,
+   "p99": 348.3,
+   "p999": 594.9,
+   "cpu": 18.747619047619047,
+   "rss": 16.296875
+  },
+  {
+   "scenario": "8\u21921 @ 10k/s each",
+   "broker": "minibroker",
+   "delivered_per_sec": 80000.0,
+   "lost": 0,
+   "p50": 70.0,
+   "p99": 364.5,
+   "p999": 1330.8,
+   "cpu": 45.11904761904762,
+   "rss": 3.984375
+  },
+  {
+   "scenario": "8\u21921 @ 10k/s each",
+   "broker": "rumqttd",
+   "delivered_per_sec": 79999.9,
+   "lost": 0,
+   "p50": 139.2,
+   "p99": 1148.7,
+   "p999": 2834.6,
+   "cpu": 49.28181818181818,
+   "rss": 198.59375
+  }
+ ],
+ "raw": {
+  "1\u21921 @ 10k/s": {
+   "minibroker": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 80000,
+     "expected_deliveries": 80000,
+     "received": 80000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 10000.0,
+     "delivered_msgs_per_sec": 10000.0,
+     "latency_us": {
+      "samples": 70000,
+      "p50": 42.7,
+      "p90": 51.7,
+      "p99": 129.7,
+      "p99.9": 249.8,
+      "max": 2206.7
+     },
+     "latency_from_schedule_us": {
+      "p50": 65.5,
+      "p99": 195.0,
+      "p99.9": 356.2,
+      "max": 2614.7
+     },
+     "broker_cpu_pct": 8.395,
+     "broker_rss_mb": 3.671875
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 80000,
+     "expected_deliveries": 80000,
+     "received": 80000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 10000.0,
+     "delivered_msgs_per_sec": 10000.0,
+     "latency_us": {
+      "samples": 70000,
+      "p50": 42.3,
+      "p90": 50.6,
+      "p99": 135.5,
+      "p99.9": 262.5,
+      "max": 1917.1
+     },
+     "latency_from_schedule_us": {
+      "p50": 64.7,
+      "p99": 203.3,
+      "p99.9": 378.2,
+      "max": 2087.2
+     },
+     "broker_cpu_pct": 8.285,
+     "broker_rss_mb": 3.671875
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 80000,
+     "expected_deliveries": 80000,
+     "received": 80000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 10000.0,
+     "delivered_msgs_per_sec": 10000.0,
+     "latency_us": {
+      "samples": 70000,
+      "p50": 42.7,
+      "p90": 55.5,
+      "p99": 164.1,
+      "p99.9": 653.8,
+      "max": 3219.4
+     },
+     "latency_from_schedule_us": {
+      "p50": 65.6,
+      "p99": 246.3,
+      "p99.9": 1070.0,
+      "max": 3314.6
+     },
+     "broker_cpu_pct": 8.69,
+     "broker_rss_mb": 3.6875
+    }
+   ],
+   "rumqttd": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 80000,
+     "expected_deliveries": 80000,
+     "received": 80000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 10000.0,
+     "delivered_msgs_per_sec": 10000.0,
+     "latency_us": {
+      "samples": 70000,
+      "p50": 54.6,
+      "p90": 62.2,
+      "p99": 140.2,
+      "p99.9": 255.2,
+      "max": 402.6
+     },
+     "latency_from_schedule_us": {
+      "p50": 76.0,
+      "p99": 195.5,
+      "p99.9": 334.6,
+      "max": 502.9
+     },
+     "broker_cpu_pct": 16.74,
+     "broker_rss_mb": 32.625
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 80000,
+     "expected_deliveries": 80000,
+     "received": 80000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 10000.0,
+     "delivered_msgs_per_sec": 10000.0,
+     "latency_us": {
+      "samples": 70000,
+      "p50": 54.0,
+      "p90": 62.5,
+      "p99": 165.7,
+      "p99.9": 290.9,
+      "max": 618.1
+     },
+     "latency_from_schedule_us": {
+      "p50": 75.6,
+      "p99": 229.3,
+      "p99.9": 387.0,
+      "max": 2052.8
+     },
+     "broker_cpu_pct": 16.565,
+     "broker_rss_mb": 32.625
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 80000,
+     "expected_deliveries": 80000,
+     "received": 80000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 10000.0,
+     "delivered_msgs_per_sec": 10000.0,
+     "latency_us": {
+      "samples": 70000,
+      "p50": 53.8,
+      "p90": 61.5,
+      "p99": 157.6,
+      "p99.9": 283.2,
+      "max": 625.0
+     },
+     "latency_from_schedule_us": {
+      "p50": 75.9,
+      "p99": 218.0,
+      "p99.9": 376.6,
+      "max": 3794.8
+     },
+     "broker_cpu_pct": 16.34,
+     "broker_rss_mb": 32.671875
+    }
+   ]
+  },
+  "1\u21921 @ 50k/s": {
+   "minibroker": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 50000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 399999,
+     "expected_deliveries": 399999,
+     "received": 399999,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 50000.0,
+     "delivered_msgs_per_sec": 49999.9,
+     "latency_us": {
+      "samples": 349999,
+      "p50": 54.0,
+      "p90": 67.0,
+      "p99": 102.5,
+      "p99.9": 188.0,
+      "max": 705.7
+     },
+     "latency_from_schedule_us": {
+      "p50": 74.8,
+      "p99": 139.2,
+      "p99.9": 278.3,
+      "max": 809.8
+     },
+     "broker_cpu_pct": 19.123809523809523,
+     "broker_rss_mb": 3.78125
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 50000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 399999,
+     "expected_deliveries": 399999,
+     "received": 399999,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 50000.0,
+     "delivered_msgs_per_sec": 49999.9,
+     "latency_us": {
+      "samples": 349999,
+      "p50": 54.4,
+      "p90": 67.6,
+      "p99": 103.3,
+      "p99.9": 229.0,
+      "max": 584.0
+     },
+     "latency_from_schedule_us": {
+      "p50": 75.4,
+      "p99": 140.7,
+      "p99.9": 304.2,
+      "max": 682.7
+     },
+     "broker_cpu_pct": 19.014285714285712,
+     "broker_rss_mb": 3.75
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 50000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 399998,
+     "expected_deliveries": 399998,
+     "received": 399998,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 50000.0,
+     "delivered_msgs_per_sec": 49999.7,
+     "latency_us": {
+      "samples": 349998,
+      "p50": 54.3,
+      "p90": 67.7,
+      "p99": 102.1,
+      "p99.9": 208.2,
+      "max": 917.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 75.6,
+      "p99": 139.2,
+      "p99.9": 280.2,
+      "max": 978.2
+     },
+     "broker_cpu_pct": 18.9,
+     "broker_rss_mb": 3.78125
+    }
+   ],
+   "rumqttd": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 50000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 400000,
+     "expected_deliveries": 400000,
+     "received": 400000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 50000.0,
+     "delivered_msgs_per_sec": 50000.0,
+     "latency_us": {
+      "samples": 350000,
+      "p50": 69.0,
+      "p90": 90.6,
+      "p99": 155.6,
+      "p99.9": 568.2,
+      "max": 3516.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 88.5,
+      "p99": 195.5,
+      "p99.9": 751.4,
+      "max": 3795.4
+     },
+     "broker_cpu_pct": 38.957142857142856,
+     "broker_rss_mb": 126.96875
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 50000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 399999,
+     "expected_deliveries": 399999,
+     "received": 399999,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 50000.0,
+     "delivered_msgs_per_sec": 49999.9,
+     "latency_us": {
+      "samples": 349999,
+      "p50": 68.6,
+      "p90": 91.8,
+      "p99": 164.0,
+      "p99.9": 410.5,
+      "max": 871.1
+     },
+     "latency_from_schedule_us": {
+      "p50": 88.2,
+      "p99": 212.0,
+      "p99.9": 491.1,
+      "max": 966.5
+     },
+     "broker_cpu_pct": 39.095238095238095,
+     "broker_rss_mb": 127.015625
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 1,
+      "rate": 50000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 399999,
+     "expected_deliveries": 399999,
+     "received": 399999,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 50000.0,
+     "delivered_msgs_per_sec": 49999.9,
+     "latency_us": {
+      "samples": 349999,
+      "p50": 69.2,
+      "p90": 92.2,
+      "p99": 161.9,
+      "p99.9": 1010.7,
+      "max": 3570.7
+     },
+     "latency_from_schedule_us": {
+      "p50": 89.1,
+      "p99": 202.0,
+      "p99.9": 1606.0,
+      "max": 4100.2
+     },
+     "broker_cpu_pct": 39.2,
+     "broker_rss_mb": 127.109375
+    }
+   ]
+  },
+  "4\u21924 @ 5k/s each": {
+   "minibroker": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 4,
+      "subscribers": 4,
+      "rate": 5000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 160000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 20000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 87.5,
+      "p90": 135.4,
+      "p99": 206.7,
+      "p99.9": 327.4,
+      "max": 823.2
+     },
+     "latency_from_schedule_us": {
+      "p50": 141.1,
+      "p99": 335.2,
+      "p99.9": 522.4,
+      "max": 999.9
+     },
+     "broker_cpu_pct": 43.94285714285714,
+     "broker_rss_mb": 3.9375
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 4,
+      "subscribers": 4,
+      "rate": 5000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 160000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 20000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 82.9,
+      "p90": 126.6,
+      "p99": 221.5,
+      "p99.9": 512.7,
+      "max": 1276.6
+     },
+     "latency_from_schedule_us": {
+      "p50": 128.3,
+      "p99": 372.7,
+      "p99.9": 854.0,
+      "max": 1928.4
+     },
+     "broker_cpu_pct": 41.147619047619045,
+     "broker_rss_mb": 3.96875
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 4,
+      "subscribers": 4,
+      "rate": 5000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 159999,
+     "expected_deliveries": 639996,
+     "received": 639996,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 20000.0,
+     "delivered_msgs_per_sec": 79999.4,
+     "latency_us": {
+      "samples": 559996,
+      "p50": 90.8,
+      "p90": 180.9,
+      "p99": 1495.4,
+      "p99.9": 9771.6,
+      "max": 12635.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 142.2,
+      "p99": 2940.5,
+      "p99.9": 12909.1,
+      "max": 21795.0
+     },
+     "broker_cpu_pct": 41.21363636363636,
+     "broker_rss_mb": 4.078125
+    }
+   ],
+   "rumqttd": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 4,
+      "subscribers": 4,
+      "rate": 5000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 160000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 20000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 97.5,
+      "p90": 157.3,
+      "p99": 311.9,
+      "p99.9": 631.8,
+      "max": 1627.9
+     },
+     "latency_from_schedule_us": {
+      "p50": 150.2,
+      "p99": 466.7,
+      "p99.9": 872.2,
+      "max": 2008.2
+     },
+     "broker_cpu_pct": 29.713636363636365,
+     "broker_rss_mb": 56.953125
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 4,
+      "subscribers": 4,
+      "rate": 5000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 160000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 20000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 105.0,
+      "p90": 176.0,
+      "p99": 324.5,
+      "p99.9": 1093.0,
+      "max": 2633.3
+     },
+     "latency_from_schedule_us": {
+      "p50": 171.1,
+      "p99": 472.8,
+      "p99.9": 1946.3,
+      "max": 4236.5
+     },
+     "broker_cpu_pct": 31.01818181818182,
+     "broker_rss_mb": 57.015625
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 4,
+      "subscribers": 4,
+      "rate": 5000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 160000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 20000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 92.0,
+      "p90": 135.8,
+      "p99": 249.7,
+      "p99.9": 1052.8,
+      "max": 4141.0
+     },
+     "latency_from_schedule_us": {
+      "p50": 137.2,
+      "p99": 383.4,
+      "p99.9": 1757.5,
+      "max": 7234.1
+     },
+     "broker_cpu_pct": 29.233333333333334,
+     "broker_rss_mb": 57.046875
+    }
+   ]
+  },
+  "1\u219220 @ 2k/s": {
+   "minibroker": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 20,
+      "rate": 2000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 16000,
+     "expected_deliveries": 320000,
+     "received": 320000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 2000.0,
+     "delivered_msgs_per_sec": 40000.0,
+     "latency_us": {
+      "samples": 280000,
+      "p50": 198.5,
+      "p90": 268.3,
+      "p99": 392.9,
+      "p99.9": 960.7,
+      "max": 2380.8
+     },
+     "latency_from_schedule_us": {
+      "p50": 248.7,
+      "p99": 555.8,
+      "p99.9": 1547.4,
+      "max": 2995.9
+     },
+     "broker_cpu_pct": 25.228571428571428,
+     "broker_rss_mb": 4.25
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 20,
+      "rate": 2000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 16000,
+     "expected_deliveries": 320000,
+     "received": 320000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 2000.0,
+     "delivered_msgs_per_sec": 40000.0,
+     "latency_us": {
+      "samples": 280000,
+      "p50": 198.9,
+      "p90": 265.7,
+      "p99": 315.2,
+      "p99.9": 500.6,
+      "max": 1316.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 248.7,
+      "p99": 375.0,
+      "p99.9": 649.8,
+      "max": 2155.4
+     },
+     "broker_cpu_pct": 24.114285714285714,
+     "broker_rss_mb": 4.21875
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 1,
+      "subscribers": 20,
+      "rate": 2000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 16000,
+     "expected_deliveries": 320000,
+     "received": 320000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 2000.0,
+     "delivered_msgs_per_sec": 40000.0,
+     "latency_us": {
+      "samples": 280000,
+      "p50": 196.5,
+      "p90": 262.8,
+      "p99": 318.0,
+      "p99.9": 527.7,
+      "max": 800.0
+     },
+     "latency_from_schedule_us": {
+      "p50": 246.3,
+      "p99": 379.5,
+      "p99.9": 808.7,
+      "max": 1220.3
+     },
+     "broker_cpu_pct": 25.33809523809524,
+     "broker_rss_mb": 4.15625
+    }
+   ],
+   "rumqttd": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 20,
+      "rate": 2000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 16000,
+     "expected_deliveries": 320000,
+     "received": 320000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 2000.0,
+     "delivered_msgs_per_sec": 40000.0,
+     "latency_us": {
+      "samples": 280000,
+      "p50": 224.0,
+      "p90": 755.4,
+      "p99": 9846.9,
+      "p99.9": 18392.7,
+      "max": 28070.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 274.3,
+      "p99": 17050.6,
+      "p99.9": 28235.4,
+      "max": 33398.6
+     },
+     "broker_cpu_pct": 19.066666666666666,
+     "broker_rss_mb": 14.953125
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 20,
+      "rate": 2000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 16000,
+     "expected_deliveries": 320000,
+     "received": 320000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 2000.0,
+     "delivered_msgs_per_sec": 40000.0,
+     "latency_us": {
+      "samples": 280000,
+      "p50": 208.9,
+      "p90": 274.0,
+      "p99": 348.3,
+      "p99.9": 594.9,
+      "max": 1303.9
+     },
+     "latency_from_schedule_us": {
+      "p50": 258.0,
+      "p99": 411.2,
+      "p99.9": 762.4,
+      "max": 1761.8
+     },
+     "broker_cpu_pct": 18.747619047619047,
+     "broker_rss_mb": 16.296875
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 1,
+      "subscribers": 20,
+      "rate": 2000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 16000,
+     "expected_deliveries": 320000,
+     "received": 320000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 2000.0,
+     "delivered_msgs_per_sec": 40000.0,
+     "latency_us": {
+      "samples": 280000,
+      "p50": 205.1,
+      "p90": 265.9,
+      "p99": 344.6,
+      "p99.9": 550.9,
+      "max": 1476.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 254.0,
+      "p99": 419.6,
+      "p99.9": 677.6,
+      "max": 2228.2
+     },
+     "broker_cpu_pct": 18.580952380952382,
+     "broker_rss_mb": 17.171875
+    }
+   ]
+  },
+  "8\u21921 @ 10k/s each": {
+   "minibroker": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 8,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 639998,
+     "expected_deliveries": 639998,
+     "received": 639998,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 80000.0,
+     "delivered_msgs_per_sec": 79999.7,
+     "latency_us": {
+      "samples": 559998,
+      "p50": 70.8,
+      "p90": 120.5,
+      "p99": 364.5,
+      "p99.9": 1632.2,
+      "max": 3839.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 143.4,
+      "p99": 649.4,
+      "p99.9": 2791.7,
+      "max": 5407.2
+     },
+     "broker_cpu_pct": 44.08095238095238,
+     "broker_rss_mb": 3.984375
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 8,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 640000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 80000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 70.0,
+      "p90": 119.1,
+      "p99": 374.9,
+      "p99.9": 1330.8,
+      "max": 2601.2
+     },
+     "latency_from_schedule_us": {
+      "p50": 142.2,
+      "p99": 651.0,
+      "p99.9": 2303.2,
+      "max": 5029.0
+     },
+     "broker_cpu_pct": 45.11904761904762,
+     "broker_rss_mb": 3.984375
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 7878,
+      "protocol": "minibroker",
+      "publishers": 8,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 640000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 80000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 69.5,
+      "p90": 115.8,
+      "p99": 324.0,
+      "p99.9": 947.6,
+      "max": 1384.7
+     },
+     "latency_from_schedule_us": {
+      "p50": 141.6,
+      "p99": 585.5,
+      "p99.9": 1731.8,
+      "max": 2985.1
+     },
+     "broker_cpu_pct": 45.48571428571429,
+     "broker_rss_mb": 3.96875
+    }
+   ],
+   "rumqttd": [
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 8,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 640000,
+     "expected_deliveries": 640000,
+     "received": 640000,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 80000.0,
+     "delivered_msgs_per_sec": 80000.0,
+     "latency_us": {
+      "samples": 560000,
+      "p50": 139.2,
+      "p90": 231.0,
+      "p99": 1377.8,
+      "p99.9": 4015.9,
+      "max": 8933.8
+     },
+     "latency_from_schedule_us": {
+      "p50": 224.7,
+      "p99": 2160.3,
+      "p99.9": 6040.2,
+      "max": 10623.8
+     },
+     "broker_cpu_pct": 48.54545454545455,
+     "broker_rss_mb": 199.0625
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 8,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 639998,
+     "expected_deliveries": 639998,
+     "received": 639998,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 80000.0,
+     "delivered_msgs_per_sec": 79999.7,
+     "latency_us": {
+      "samples": 559998,
+      "p50": 134.2,
+      "p90": 206.8,
+      "p99": 579.5,
+      "p99.9": 1713.3,
+      "max": 3179.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 212.6,
+      "p99": 839.7,
+      "p99.9": 2616.5,
+      "max": 4474.4
+     },
+     "broker_cpu_pct": 49.28181818181818,
+     "broker_rss_mb": 198.234375
+    },
+    {
+     "config": {
+      "host": "127.0.0.1",
+      "port": 1883,
+      "protocol": "mqtt",
+      "publishers": 8,
+      "subscribers": 1,
+      "rate": 10000.0,
+      "size": 64,
+      "duration": 8.0,
+      "warmup": 1,
+      "filter": "load/#",
+      "title": null
+     },
+     "sent": 639999,
+     "expected_deliveries": 639999,
+     "received": 639999,
+     "lost": 0,
+     "seq_gaps": 0,
+     "errors": [],
+     "offered_msgs_per_sec": 80000.0,
+     "delivered_msgs_per_sec": 79999.9,
+     "latency_us": {
+      "samples": 559999,
+      "p50": 144.0,
+      "p90": 256.2,
+      "p99": 1148.7,
+      "p99.9": 2834.6,
+      "max": 5052.5
+     },
+     "latency_from_schedule_us": {
+      "p50": 233.8,
+      "p99": 1722.5,
+      "p99.9": 4094.8,
+      "max": 7796.0
+     },
+     "broker_cpu_pct": 50.73809523809524,
+     "broker_rss_mb": 198.59375
+    }
+   ]
+  }
+ }
+}
