@@ -662,3 +662,32 @@ equally.
   added complexity of keeping raw frame bytes alongside the parsed frame.
 * **Sharded metric counters** (D49). `fetch_add` on the shared counters
   didn't appear in the top frames of either profile.
+
+---
+
+## P13 — Linux internals in practice
+
+Full write-up with numbers: [`docs/LINUX.md`](docs/LINUX.md). Decisions
+that came out of it:
+
+### D59. Keep the accept backoff; size `ulimit -n` above `--max-connections`
+* Measured: with `ulimit -n 64`, clients beyond the limit sit in the
+  kernel backlog, connected but unserved. Backoff retried ~20×/s and
+  picked them up as soon as descriptors were freed. The broker's own cap
+  rejects explicitly, which is better than an OS limit that hides clients.
+
+### D60. `TCP_NODELAY` stays on by default; never split a frame across writes
+* Measured: write-write-read with Nagle costs **41 ms** per round trip
+  (vs 37 µs). One-way streaming showed no difference, because the writer's
+  `writev` batching already does Nagle's job without the delayed-ACK trap.
+
+### D61. Leave `SO_SNDBUF` to kernel auto-tuning, for now
+* Measured: ~3.8 MB (mostly in the kernel send buffer, auto-tuned up to
+  4 MiB) can be in flight to a stalled subscriber before the broker drops
+  its first message. Capping `SO_SNDBUF` would make slow-consumer detection
+  faster and memory tighter, but it limits throughput on high-RTT links. It's
+  a per-deployment tuning knob, not a default to hard-code.
+
+### D62. Per-connection interval timers are fine at this scale
+* Measured: 1 000 idle connections → 46 syscalls in 10 s, 13 KiB RSS each,
+  no extra threads. The timer wheel coalesces the frame-timeout ticks.

@@ -1,0 +1,33 @@
+################ 1. File descriptors and ulimit -n ################
+Max open files            64                   64                   files     
+fds open at idle: 10  ->        1 /dev/null       2 /tmp/broker.log       1 anon_inode:[eventfd]       2 anon_inode:[eventpoll]       4 socket 
+100 clients connected (kernel accepted all); answered PING: 54, stuck: 46
+closed 30 served clients -> 30 of the 46 stuck clients got answered (broker's accept backoff retried)
+accept errors logged: 419, e.g. 'Too many open files (os error 24)'
+
+################ 2. Nagle's algorithm vs TCP_NODELAY ################
+-- (a) write-write-read: client sends each PING as two write() calls, then waits for PONG
+client TCP_NODELAY on : PING RTT p50      37.3 µs   p99      83.8 µs
+client Nagle on (default): PING RTT p50   40993.2 µs   p99   41393.4 µs
+-- (b) one-way streaming, broker started with and without --nagle
+broker nodelay: 1 pub -> 1 sub @1000 msg/s: p50     88.2 µs  p99    372.6 µs  max   1451.5 µs  lost 0
+broker nagle: 1 pub -> 1 sub @1000 msg/s: p50    104.0 µs  p99    453.8 µs  max   1600.5 µs  lost 0
+
+################ 3. Kernel socket buffers in front of a stalled subscriber ################
+tcp_wmem (min default max): 4096	16384	4194304   tcp_rmem: 4096	131072	6291456
+published 20000 x 1032 B frames (20.6 MB) to a subscriber that never reads
+  bytes parked in subscriber's kernel receive buffer (Recv-Q):   0.11 MB  (~110 frames)
+  bytes parked in broker's kernel send buffer (Send-Q):          2.60 MB  (~2516 frames)
+  + broker's own queue: 1024 frames (1.06 MB). Everything beyond is dropped.
+
+################ 4. epoll: what idle connections cost ################
+threads: 13 (13 tasks)  RSS idle: 3144 kB
+with 1000 idle connections: fds 1010, threads 13, RSS 16204 kB
+syscalls by the broker during 10 s with 1000 idle connections (stats timer off):
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 95.24    0.003780         145        26           futex
+  4.11    0.000163          11        14           epoll_pwait
+  0.66    0.000026           4         6           sched_yield
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.003969          86        46           total
