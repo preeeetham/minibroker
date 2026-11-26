@@ -62,3 +62,74 @@ makes the cap visible.
 **Lesson.** A test runtime that differs from the production one can produce
 a "flaky test" that is really a real limit. Also, kernel parameters you pass
 (`listen(1024)`) are requests that the kernel can quietly reduce.
+
+---
+
+## #2 — Fuzzing found nothing; a memory hypothesis was wrong; the measurement found a slowloris hole
+
+**Context.** P10 added three cargo-fuzz targets (streaming decoder with
+arbitrary TCP chunking, body parser, topic matcher checked against a
+reference model). In 2 minutes each, **15.4 million executions found no
+crash and no broken invariant.** The proptest suite (P2) had already covered
+much of that ground.
+
+A fuzzer checks one input at a time, so it can't see resource
+use *across connections*. That's where I looked next.
+
+**Hypothesis (wrong).** Decision D15 makes the decoder `reserve()` the
+whole frame once it has read the 4-byte length. I expected this to be an
+amplification attack: 5 bytes from a client could make the broker allocate 1 MiB.
+
+**Measurement.** A Python script opened 1000 connections in three modes
+and read the broker's RSS from `ps`:
+
+| per connection, 1000 connections            | broker RSS / conn |
+|---------------------------------------------|------------------:|
+| connect only                                | 13.6 KiB          |
+| 5 bytes: header claiming a 1 MiB frame      | 27 KiB            |
+| header + 512 KiB of body, never finished    | **539 KiB**       |
+
+The reservation is nearly free: the OS only commits pages that are
+written, so reserved-but-untouched capacity doesn't show up in RSS. **The
+hypothesis was wrong.** But the third row showed the real problem: a
+frame that is *started but never finished* stays buffered forever. Nothing
+ever timed it out. 10 000 such connections (the default limit) would pin
+about 5 GiB. This is the classic **slowloris** attack.
+
+**Fix.**
+1. **Partial-frame deadline** (`--frame-timeout-secs`, default 30): once
+   the read buffer holds an incomplete frame, it must complete in time or
+   the connection is closed with `ERROR Malformed "incomplete frame timed out"`.
+   An idle connection *between* frames is never timed out.
+   *Implementation detail:* the deadline uses one persistent `interval`
+   per connection, not a `sleep` per frame. Arming a new timer per frame
+   would add a timer-wheel insert to the hot path. Cancelling
+   `FramedRead::next()` when the timer wins is safe, because bytes already
+   read stay in its buffer.
+2. **Connection cap** (`--max-connections`, default 10 000). Extra clients
+   get `ERROR TooManyConnections` via a non-blocking `try_write`, then the
+   socket is closed. The broker never waits on a client it's rejecting.
+
+**Verified.** The same attack against the fixed broker (frame timeout 1 s):
+all **1000/1000 connections closed by the broker within 1.2 s**. Tests:
+`stalled_partial_frame_is_closed`, `idle_between_frames_is_not_timed_out`,
+`steady_traffic_is_not_timed_out`, `connection_limit_rejects_extra_clients`.
+
+**A second surprise: RSS didn't drop after the connections closed.** It
+stayed at about 530 MB. Leak or allocator? Four waves of the attack against one
+broker: RSS 530 → 532 → 533 → 534 MB, a plateau rather than +530 MB per
+wave. macOS `heap <pid>` showed **614 KB of live allocations**. The rest is
+freed memory that libmalloc keeps for reuse. So it's bounded by peak
+usage, not leaking. If returning it to the OS mattered, swapping in a
+different allocator (jemalloc with decay) would be the next step.
+
+**Lessons.**
+* A fuzzer only proves that individual inputs are handled correctly.
+  Resource-exhaustion bugs need a load test that measures memory.
+* Measure the hypothesis before "fixing" it. The suspected bug (reserve
+  amplification) wasn't real, and the real one only showed up in the
+  numbers.
+* RSS isn't the same as live heap. Check the allocator's view (`heap`,
+  `heaptrack`, `dhat`) before calling something a leak.
+* The remaining worst case is explicit and configurable:
+  `max_connections × max_frame_len`, held for at most `frame_timeout`.

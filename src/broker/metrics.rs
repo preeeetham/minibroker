@@ -19,6 +19,8 @@ pub struct Metrics {
     pub drops: AtomicU64,
     pub slow_disconnects: AtomicU64,
     pub protocol_errors: AtomicU64,
+    pub connections_rejected: AtomicU64,
+    pub frame_timeouts: AtomicU64,
 }
 
 /// A point-in-time copy of [`Metrics`].
@@ -34,6 +36,8 @@ pub struct Snapshot {
     pub drops: u64,
     pub slow_disconnects: u64,
     pub protocol_errors: u64,
+    pub connections_rejected: u64,
+    pub frame_timeouts: u64,
     pub subscriptions: u64,
 }
 
@@ -50,6 +54,8 @@ impl Metrics {
             drops: self.drops.load(Relaxed),
             slow_disconnects: self.slow_disconnects.load(Relaxed),
             protocol_errors: self.protocol_errors.load(Relaxed),
+            connections_rejected: self.connections_rejected.load(Relaxed),
+            frame_timeouts: self.frame_timeouts.load(Relaxed),
             subscriptions: subscriptions as u64,
         }
     }
@@ -79,6 +85,7 @@ impl Snapshot {
                 "\"subscriptions\":{},\"frames_in\":{},\"publishes_in\":{},",
                 "\"bytes_in\":{},\"deliveries\":{},\"bytes_out\":{},\"drops\":{},",
                 "\"slow_disconnects\":{},\"protocol_errors\":{},",
+                "\"frame_timeouts\":{},\"connections_rejected\":{},",
                 "\"publishes_per_sec\":{:.1},\"deliveries_per_sec\":{:.1},",
                 "\"drops_per_sec\":{:.1}}}"
             ),
@@ -93,6 +100,8 @@ impl Snapshot {
             self.drops,
             self.slow_disconnects,
             self.protocol_errors,
+            self.frame_timeouts,
+            self.connections_rejected,
             rates.publishes_per_sec,
             rates.deliveries_per_sec,
             rates.drops_per_sec,
@@ -142,7 +151,7 @@ mod tests {
         let j = s.to_json(&Rates::default());
         assert!(j.starts_with('{') && j.ends_with('}'));
         assert!(j.contains("\"publishes_in\":10"));
-        assert_eq!(j.matches(':').count(), 14);
+        assert_eq!(j.matches(':').count(), 16);
     }
 
     #[test]

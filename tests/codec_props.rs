@@ -19,7 +19,7 @@ fn arb_frame() -> impl Strategy<Value = Frame> {
         }),
         Just(Frame::Ping),
         Just(Frame::Pong),
-        (1u8..=5, s).prop_map(|(c, message)| Frame::Error {
+        (1u8..=6, s).prop_map(|(c, message)| Frame::Error {
             code: ErrorCode::from_u8(c).unwrap(),
             message,
         }),

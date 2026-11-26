@@ -50,6 +50,7 @@ a client needs only one decoder for both directions.
 | 3    | frame too large                                  | yes                |
 | 4    | slow consumer: too many messages were dropped    | yes                |
 | 5    | broker shutting down                             | yes                |
+| 6    | broker connection limit reached                  | yes                |
 
 ## Topics and filters
 
@@ -61,6 +62,12 @@ a client needs only one decoder for both directions.
   * `#` matches zero or more trailing levels and must be the last level:
     `vehicle/#` matches `vehicle`, `vehicle/42` and `vehicle/42/speed`.
   * A wildcard must occupy a whole level (`veh+` is invalid).
+
+## Timeouts
+
+* Once the first byte of a frame has arrived, the whole frame must arrive
+  within `frame_timeout` (default 30 s), or the connection is closed with
+  `ERROR code=1`. An idle connection *between* frames is never timed out.
 
 ## Ordering and acknowledgements
 

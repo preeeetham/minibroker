@@ -35,6 +35,12 @@ struct Args {
     /// Seconds between stats reports (0 = off).
     #[arg(long, default_value_t = 10)]
     stats_secs: u64,
+    /// Seconds a partially received frame may take to complete.
+    #[arg(long, default_value_t = 30)]
+    frame_timeout_secs: u64,
+    /// Maximum simultaneous client connections.
+    #[arg(long, default_value_t = 10_000)]
+    max_connections: usize,
 }
 
 #[tokio::main]
@@ -54,6 +60,8 @@ async fn main() -> anyhow::Result<()> {
         listen_backlog: args.backlog,
         slow_drop_limit: args.slow_drop_limit,
         stats_interval: Duration::from_secs(args.stats_secs),
+        frame_timeout: Duration::from_secs(args.frame_timeout_secs),
+        max_connections: args.max_connections,
     };
 
     let server = Server::bind(&args.addr, config)

@@ -10,10 +10,12 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug, error, info, info_span, warn};
 
-use super::metrics::{Metrics, Rates, Snapshot};
+use super::metrics::{Metrics, Rates, Snapshot, inc};
 use super::router::Router;
 use super::{ClientId, Config, connection};
 use crate::protocol::codec::encode_publish;
+use crate::protocol::{ErrorCode, Frame};
+use std::sync::atomic::Ordering::Relaxed;
 
 /// Topic the broker publishes its own counters on.
 pub const STATS_TOPIC: &str = "$SYS/broker/stats";
@@ -104,6 +106,11 @@ impl Server {
                 _ = shutdown.cancelled() => break,
                 res = self.listener.accept() => match res {
                     Ok((stream, peer)) => {
+                        let active = self.shared.metrics.connections_active.load(Relaxed);
+                        if active >= self.shared.config.max_connections as u64 {
+                            reject(stream, &self.shared);
+                            continue;
+                        }
                         next_id += 1;
                         let id = next_id;
                         let shared = Arc::clone(&self.shared);
@@ -111,8 +118,9 @@ impl Server {
                         // Every log line from this connection carries its id
                         // and peer address.
                         let span = info_span!("conn", id, %peer);
+                        let guard = connection::ActiveGuard::new(&shared);
                         conns.spawn(
-                            connection::run(id, stream, shared, cancel).instrument(span),
+                            connection::run(id, stream, shared, cancel, guard).instrument(span),
                         );
                     }
                     Err(e) => {
@@ -150,6 +158,23 @@ impl Server {
         }
         debug!("all connections closed");
         Ok(())
+    }
+}
+
+/// Over `max_connections`: tell the client why (if its socket can take the
+/// bytes right now) and close. Never waits on the client.
+fn reject(stream: tokio::net::TcpStream, shared: &Shared) {
+    inc(&shared.metrics.connections_rejected);
+    warn!(
+        max = shared.config.max_connections,
+        "connection limit reached, rejecting"
+    );
+    let err = Frame::Error {
+        code: ErrorCode::TooManyConnections,
+        message: "broker connection limit reached".into(),
+    };
+    if let Ok(b) = err.to_bytes() {
+        let _ = stream.try_write(&b);
     }
 }
 

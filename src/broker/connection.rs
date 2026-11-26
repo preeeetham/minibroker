@@ -17,7 +17,7 @@
 //! gives one place to apply backpressure.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use futures::StreamExt;
@@ -54,6 +54,9 @@ enum Close {
     WriterGone,
     /// The router disconnected us: too many messages dropped in a row (P7).
     SlowConsumer,
+    /// A frame started arriving but didn't complete within `frame_timeout`
+    /// (slowloris defence, DEBUGGING.md #2).
+    FrameTimeout,
 }
 
 /// Handles that let other tasks reach this connection.
@@ -67,17 +70,16 @@ pub(crate) async fn run(
     stream: TcpStream,
     shared: Arc<Shared>,
     shutdown: CancellationToken,
+    // Owned by the task so the gauge is decremented even if the task is
+    // aborted at the end of the shutdown grace period (abort drops the
+    // future, so Drop still runs).
+    _active: ActiveGuard,
 ) {
     let cfg = &shared.config;
     if cfg.tcp_nodelay {
         let _ = stream.set_nodelay(true);
     }
     info!("client connected");
-    inc(&shared.metrics.connections_total);
-    inc(&shared.metrics.connections_active);
-    // RAII: decrement even if this task is aborted at the end of the
-    // shutdown grace period (abort drops the future, so Drop still runs).
-    let _active = ActiveGuard(&shared);
 
     let (rd, wr) = stream.into_split();
     let (tx, rx) = mpsc::channel::<Bytes>(cfg.outbound_queue);
@@ -100,6 +102,13 @@ pub(crate) async fn run(
     let outbox = Outbox { tx };
     let mut frames = FramedRead::new(rd, FrameCodec::new(cfg.max_frame_len));
 
+    // One persistent timer instead of a new `sleep` per frame: arming a
+    // timer on every frame would cost a timer-wheel insert in the hot path.
+    let mut check = tokio::time::interval(cfg.frame_timeout / 4);
+    check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // When we first saw an incomplete frame sitting in the read buffer.
+    let mut partial_since: Option<Instant> = None;
+
     let reason = loop {
         let next = tokio::select! {
             // Shutdown and writer failure win over buffered input.
@@ -108,7 +117,21 @@ pub(crate) async fn run(
             _ = kill.cancelled() => break Close::SlowConsumer,
             _ = writer_done.cancelled() => break Close::WriterGone,
             f = frames.next() => f,
+            // `FramedRead::next` is cancel-safe: bytes already read stay in
+            // its buffer, so losing this race to the timer loses nothing.
+            _ = check.tick() => {
+                if frames.read_buffer().is_empty() {
+                    partial_since = None;
+                } else if partial_since.get_or_insert_with(Instant::now).elapsed()
+                    >= cfg.frame_timeout
+                {
+                    break Close::FrameTimeout;
+                }
+                continue;
+            }
         };
+        // A frame boundary: whatever is buffered now is a *new* partial frame.
+        partial_since = None;
         let frame = match next {
             None => break Close::PeerClosed,
             Some(Err(ProtocolError::Io(e))) => break Close::Io(e),
@@ -139,6 +162,10 @@ pub(crate) async fn run(
             code: ErrorCode::ShuttingDown,
             message: "broker shutting down".into(),
         }),
+        Close::FrameTimeout => Some(Frame::Error {
+            code: ErrorCode::Malformed,
+            message: "incomplete frame timed out".into(),
+        }),
         // The writer sends the SlowConsumer error itself: our queue is
         // full, which is the whole problem.
         Close::PeerClosed | Close::Io(_) | Close::WriterGone | Close::SlowConsumer => None,
@@ -166,13 +193,26 @@ pub(crate) async fn run(
             warn!("disconnected slow consumer");
         }
         Close::Io(e) => info!(error = %e, "client disconnected (socket error)"),
+        Close::FrameTimeout => {
+            inc(&shared.metrics.frame_timeouts);
+            warn!("closing connection: incomplete frame timed out");
+        }
         other => info!(reason = ?other, "client disconnected"),
     }
 }
 
-struct ActiveGuard<'a>(&'a Shared);
+/// Holds one slot of `connections_active` for as long as it lives.
+pub(crate) struct ActiveGuard(Arc<Shared>);
 
-impl Drop for ActiveGuard<'_> {
+impl ActiveGuard {
+    pub(crate) fn new(shared: &Arc<Shared>) -> Self {
+        inc(&shared.metrics.connections_total);
+        inc(&shared.metrics.connections_active);
+        Self(Arc::clone(shared))
+    }
+}
+
+impl Drop for ActiveGuard {
     fn drop(&mut self) {
         dec(&self.0.metrics.connections_active);
     }

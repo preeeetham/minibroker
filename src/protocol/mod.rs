@@ -56,6 +56,7 @@ pub enum ErrorCode {
     FrameTooLarge = 3,
     SlowConsumer = 4,
     ShuttingDown = 5,
+    TooManyConnections = 6,
 }
 
 impl ErrorCode {
@@ -66,6 +67,7 @@ impl ErrorCode {
             3 => Self::FrameTooLarge,
             4 => Self::SlowConsumer,
             5 => Self::ShuttingDown,
+            6 => Self::TooManyConnections,
             _ => return None,
         })
     }

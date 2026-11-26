@@ -467,3 +467,35 @@ subscriber**. That's the first suspect for P12.
   depending on serde for one flat object.
 * *Trade-off:* not directly scrapeable by Prometheus. An HTTP exporter
   could be added later without changing the broker internals.
+
+---
+
+## P10 — Fuzzing
+
+### D52. Three cargo-fuzz (libFuzzer + ASan) targets that check invariants, not just "no crash"
+* `decode_stream`: arbitrary bytes, arbitrary chunk size. Checks: no
+  panic, every returned frame consumed bytes (no infinite loop), the result
+  is **independent of chunking**, and every decoded frame round-trips.
+* `parse_frame`: the body parser alone, so the fuzzer doesn't spend its time
+  discovering valid length prefixes. Checks: accepted input is
+  **canonical**, i.e. re-encoding gives exactly the input bytes (D18).
+* `topic_match`: validators + `matches()` against a slow, recursive
+  **reference implementation** (differential fuzzing). Also checks that every
+  valid topic is a valid filter that matches itself and matches `#`.
+* **Result:** 2 minutes each, 1.4M / 7.6M / 6.3M executions, **no
+  findings**. See DEBUGGING.md #2 for what *was* found next.
+* Run: `cargo +nightly fuzz run decode_stream -- -max_total_time=120`.
+  The fuzz crate has its own `[workspace]`, so the main build never needs
+  nightly.
+
+### D53. Partial-frame timeout and connection cap
+* See DEBUGGING.md #2. `--frame-timeout-secs` (30) and
+  `--max-connections` (10 000). Worst-case receive-buffer memory is now
+  explicitly `max_connections × max_frame_len` for at most
+  `frame_timeout`.
+* *Alternative:* a global byte budget for all partially received frames.
+  It's more precise, but needs a shared atomic on the read path. The two simple
+  limits make the bound explicit without that.
+* The active-connection guard is now created at `accept()` and moved into
+  the task. Counting starts before the task is first polled, so the cap
+  can't be overshot by connections that haven't started running yet.

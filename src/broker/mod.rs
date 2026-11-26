@@ -30,6 +30,10 @@ pub struct Config {
     /// How often to log stats and publish them on `$SYS/broker/stats`.
     /// Zero disables it.
     pub stats_interval: Duration,
+    /// A frame that has started arriving must complete within this long.
+    pub frame_timeout: Duration,
+    /// Connections beyond this are accepted and immediately closed.
+    pub max_connections: usize,
 }
 
 impl Default for Config {
@@ -42,6 +46,8 @@ impl Default for Config {
             listen_backlog: 1024,
             slow_drop_limit: 1000,
             stats_interval: Duration::from_secs(10),
+            frame_timeout: Duration::from_secs(30),
+            max_connections: 10_000,
         }
     }
 }
