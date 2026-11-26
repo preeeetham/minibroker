@@ -144,3 +144,54 @@ Format: **Decision** → *Alternatives* → **Why** → *Cost / what we gave up*
   "encode→decode is the identity for any frame, under any TCP chunking"
   and "garbage never panics". It's a cheap, deterministic precursor to
   coverage-guided fuzzing in P10.
+
+---
+
+## P3 — TCP server
+
+### D20. Async (Tokio) instead of blocking I/O, with the blocking version kept for comparison
+* `examples/blocking_server.rs` serves one client at a time with
+  `std::net`. `src/broker/server.rs` spawns one Tokio task per connection.
+* **Measured** on an M4 Pro, release build, 50 concurrent clients × 1 000
+  PING/PONG round trips (`examples/concurrent_ping.rs`, 3 runs each):
+
+  | server   | time   | round trips/s |
+  |----------|--------|---------------|
+  | blocking | ~0.85 s | ~58 000      |
+  | Tokio    | ~0.30 s | ~167 000     |
+
+* The throughput gap (~2.9×) understates the real problem. With **one idle
+  client connected**, the blocking server never answers anyone else: a
+  new client's single PING timed out after 3 s. The Tokio server answered in
+  about 1 ms. A thread blocked in `read()` can't `accept()`. Telemetry
+  brokers have thousands of mostly idle connections, which is exactly
+  the worst case for blocking I/O.
+* *Alternatives:* thread-per-connection. That works for hundreds of clients,
+  but each thread costs a stack (2–8 MiB reserved virtual memory) and a
+  kernel context switch per wake-up. Tokio tasks are a few hundred bytes,
+  multiplexed onto one thread per core using kqueue/epoll.
+
+### D21. Multi-threaded runtime, one task per connection
+* **Why:** `#[tokio::main]` defaults to a work-stealing pool with one worker
+  per core, so CPU-heavy fan-out on one connection doesn't stall the others.
+* *Cost:* everything shared between tasks must be `Send + Sync`
+  (`Arc<Shared>`), and locks must never be held across `.await`.
+
+### D22. Track connection tasks in a `JoinSet` and reap them in the accept loop
+* **Why:** the broker has to know which connections are alive so shutdown
+  can wait for them (P8), and so a panic in one connection is logged rather
+  than silently lost. Reaping with `join_next()` inside the `select!`
+  stops the set from growing forever on a long-lived broker.
+
+### D23. Back off on `accept()` errors
+* **Why:** if the process runs out of file descriptors (`EMFILE`),
+  `accept()` fails immediately. Retrying in a tight loop pins a core at
+  100% and floods the log. A 50 ms sleep lets existing connections close
+  and free descriptors. (P13 explores `ulimit -n`.)
+
+### D24. `TCP_NODELAY` on by default
+* **Why:** Nagle's algorithm holds back small writes until the previous
+  segment is ACKed. Combined with the peer's delayed ACKs, that can add
+  tens of milliseconds to a small PUBLISH. A broker wants low latency, and it
+  batches writes itself (P12), so it doesn't need the kernel to.
+  `--nagle` turns Nagle's algorithm back on for experiments.
