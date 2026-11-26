@@ -392,3 +392,40 @@ subscriber**. That's the first suspect for P12.
 * `tests/backpressure.rs`: with queue = 64 and drop limit = 100, a stalled
   subscriber is disconnected while a lock-step publisher/fast subscriber
   pair moves 2 000 × 16 KiB messages (32 MiB) without being slowed.
+
+---
+
+## P8 — Graceful shutdown and resilience
+
+### D43. One root `CancellationToken`, a child token per connection
+* **Why:** cancelling the root stops the accept loop and every connection
+  at once. Child tokens mean a connection could also be cancelled on its own
+  without affecting the others. It's cheaper and clearer than broadcasting a
+  "stop" message to N tasks.
+
+### D44. Shutdown order: stop accepting → each connection drains → ERROR ShuttingDown → FIN
+* **Why:** messages already accepted into a client's queue are delivered
+  before the shutdown notice (`queued_messages_are_delivered_before_shutdown_notice`,
+  5 000 messages). The listener is dropped first, so new connection
+  attempts are refused immediately rather than accepted and then killed.
+
+### D45. Bounded grace period, then abort
+* **Why:** a client that never reads could keep the writer stuck in
+  `write_all` forever. After `--grace-secs` (default 5), the remaining tasks
+  are aborted with `JoinSet::shutdown()`. A deployment's restart then always
+  finishes in bounded time. Tested with a stuck client and a 500 ms grace:
+  `run()` returns between 500 ms and 2.5 s.
+
+### D46. SIGTERM and SIGINT both trigger graceful shutdown; a second signal exits now
+* **Why:** container orchestrators send SIGTERM, and humans press Ctrl-C.
+  If the drain hangs, the operator needs an escape hatch, so the second
+  signal calls `exit(130)`.
+* Verified with the real binary: `kill -TERM` → subscriber prints the last
+  message and then `ShuttingDown` → broker logs `bye` and exits with code 0.
+
+### D47. EOF from a client means "done", even with a half-closed socket
+* *Alternative:* keep delivering to a client that has shut down only its
+  write side (TCP allows it).
+* **Why:** our clients have no use for a read-only connection, and treating
+  EOF as a disconnect frees the client's resources immediately. MQTT
+  brokers do the same. Tested in `half_closed_client_is_cleaned_up`.

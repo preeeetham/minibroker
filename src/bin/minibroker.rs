@@ -57,14 +57,34 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("binding {}", args.addr))?;
 
     let shutdown = CancellationToken::new();
-    tokio::spawn({
-        let shutdown = shutdown.clone();
-        async move {
-            let _ = tokio::signal::ctrl_c().await;
-            shutdown.cancel();
-        }
-    });
+    tokio::spawn(watch_signals(shutdown.clone()));
 
     server.run(shutdown).await?;
+    tracing::info!("bye");
     Ok(())
+}
+
+/// First SIGINT/SIGTERM: graceful shutdown. Second one: exit immediately.
+async fn watch_signals(shutdown: CancellationToken) {
+    wait_for_signal().await;
+    tracing::info!("signal received, draining connections (signal again to force exit)");
+    shutdown.cancel();
+    wait_for_signal().await;
+    tracing::warn!("second signal, exiting now");
+    std::process::exit(130);
+}
+
+#[cfg(unix)]
+async fn wait_for_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }
