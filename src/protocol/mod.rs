@@ -1,6 +1,9 @@
 //! The minibroker wire protocol. See `docs/PROTOCOL.md` for the byte layout.
 
+pub mod codec;
 pub mod topic;
+
+pub use codec::FrameCodec;
 
 use bytes::Bytes;
 use thiserror::Error;

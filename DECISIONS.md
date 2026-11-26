@@ -91,3 +91,56 @@ Format: **Decision** → *Alternatives* → **Why** → *Cost / what we gave up*
 * **Why:** one crate is easier to navigate at this size. The library holds
   all logic so tests, benches and fuzz targets link against the same code,
   and `src/bin/*` stay thin. Split into a workspace if it grows.
+
+---
+
+## P2 — Frame codec
+
+### D13. Two-layer decoding: boundary finding vs body parsing
+* **Decision:** `FrameCodec::decode` only reads the 4-byte length and waits
+  for a complete frame. `Frame::parse(Bytes)` parses exactly one body.
+* **Why:** the body parser never has to handle "need more bytes", so
+  "incomplete" (wait) and "invalid" (error) can't get mixed up. That
+  mix-up is the classic bug in hand-written stream parsers. It also gives the
+  fuzzer (P10) a clean, pure entry point.
+
+### D14. Implement `tokio_util::codec::{Decoder, Encoder}`
+* *Alternatives:* a hand-rolled read loop over `AsyncReadExt::read_buf`.
+* **Why:** `FramedRead`/`FramedWrite` already handle buffer management,
+  EOF in the middle of a frame (reported as an error rather than silently
+  dropped), and expose the connection as a `Stream`/`Sink`. The `Decoder`
+  trait is a pure `&mut BytesMut -> Option<Frame>` function, so it's
+  testable without sockets.
+
+### D15. `reserve` exactly the missing bytes once the length is known
+* **Why:** once the prefix says "1 000 000 bytes", growing the buffer in one
+  step avoids repeated reallocation and copying as the payload trickles in.
+  This only happens *after* the max-length check (D3).
+
+### D16. Zero-copy payloads via `split_to().freeze()`
+* **Why:** the payload `Bytes` shares the receive buffer's allocation. A
+  unit test (`payload_is_zero_copy`) checks the pointer lies inside the
+  original buffer, so a refactor that accidentally adds a copy fails CI.
+* *Trade-off:* a small payload keeps the whole receive chunk it came from
+  alive until every subscriber has sent it. Fine at our frame sizes. Worth
+  remembering if memory profiling (P12) shows big retained buffers.
+
+### D17. Structural vs semantic validation
+* **Decision:** the codec checks *structure* (lengths, kind, UTF-8, no
+  trailing bytes). *Topic rules* (wildcards, NUL) are checked by the
+  connection handler.
+* **Why:** a malformed frame means the byte stream can no longer be trusted,
+  so the connection must close. A bad topic in a well-formed frame is a
+  recoverable client mistake: reply `ERROR code=2` and keep the connection.
+  Keeping the two checks in separate layers makes that difference explicit.
+
+### D18. Strictness: trailing bytes and unknown error codes are errors
+* **Why:** being lenient in a parser hides bugs and grows the attack
+  surface. Strict parsing makes every accepted frame re-encode to the exact
+  same bytes, which the property tests rely on.
+
+### D19. Property tests with `proptest`
+* **Why:** hand-written tests cover cases I thought of. Property tests check
+  "encode→decode is the identity for any frame, under any TCP chunking"
+  and "garbage never panics". It's a cheap, deterministic precursor to
+  coverage-guided fuzzing in P10.
