@@ -16,7 +16,6 @@
 //! one bounded queue. That keeps a single ordering for outbound frames and
 //! gives one place to apply backpressure.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,9 +27,10 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::mpsc;
 use tokio_util::codec::FramedRead;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{Instrument, debug, info, warn};
 
 use super::ClientId;
+use super::metrics::{add, dec, inc};
 use super::server::Shared;
 use crate::protocol::codec::encode_publish;
 use crate::protocol::topic::{validate_filter, validate_topic};
@@ -65,7 +65,6 @@ pub(crate) struct Outbox {
 pub(crate) async fn run(
     id: ClientId,
     stream: TcpStream,
-    peer: SocketAddr,
     shared: Arc<Shared>,
     shutdown: CancellationToken,
 ) {
@@ -73,14 +72,28 @@ pub(crate) async fn run(
     if cfg.tcp_nodelay {
         let _ = stream.set_nodelay(true);
     }
-    info!(id, %peer, "client connected");
+    info!("client connected");
+    inc(&shared.metrics.connections_total);
+    inc(&shared.metrics.connections_active);
+    // RAII: decrement even if this task is aborted at the end of the
+    // shutdown grace period (abort drops the future, so Drop still runs).
+    let _active = ActiveGuard(&shared);
 
     let (rd, wr) = stream.into_split();
     let (tx, rx) = mpsc::channel::<Bytes>(cfg.outbound_queue);
     // Fired by the router when this client is too slow (P7).
     let kill = CancellationToken::new();
     let writer_done = CancellationToken::new();
-    let writer = tokio::spawn(write_loop(wr, rx, kill.clone(), writer_done.clone()));
+    let writer = tokio::spawn(
+        write_loop(
+            wr,
+            rx,
+            kill.clone(),
+            writer_done.clone(),
+            Arc::clone(&shared),
+        )
+        .in_current_span(),
+    );
 
     shared.router.register(id, tx.clone(), kill.clone());
 
@@ -102,6 +115,7 @@ pub(crate) async fn run(
             Some(Err(e)) => break Close::Protocol(e),
             Some(Ok(f)) => f,
         };
+        inc(&shared.metrics.frames_in);
         // handle_frame may wait on our own full queue (a PONG reply). If we
         // get killed meanwhile, stop waiting. Cancelling it is safe: router
         // calls are synchronous and finish before any await point.
@@ -143,10 +157,24 @@ pub(crate) async fn run(
     let _ = writer.await;
 
     match reason {
-        Close::Protocol(e) => warn!(id, error = %e, "closing connection: protocol error"),
-        Close::SlowConsumer => warn!(id, "disconnected slow consumer"),
-        Close::Io(e) => info!(id, error = %e, "client disconnected (socket error)"),
-        other => info!(id, reason = ?other, "client disconnected"),
+        Close::Protocol(e) => {
+            inc(&shared.metrics.protocol_errors);
+            warn!(error = %e, "closing connection: protocol error");
+        }
+        Close::SlowConsumer => {
+            inc(&shared.metrics.slow_disconnects);
+            warn!("disconnected slow consumer");
+        }
+        Close::Io(e) => info!(error = %e, "client disconnected (socket error)"),
+        other => info!(reason = ?other, "client disconnected"),
+    }
+}
+
+struct ActiveGuard<'a>(&'a Shared);
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        dec(&self.0.metrics.connections_active);
     }
 }
 
@@ -167,7 +195,12 @@ async fn handle_frame(
             let Ok(bytes) = encode_publish(&topic, &payload) else {
                 return Ok(());
             };
+            let m = &shared.metrics;
+            inc(&m.publishes_in);
+            add(&m.bytes_in, bytes.len() as u64);
             let d = shared.router.publish(&topic, &bytes);
+            add(&m.deliveries, d.delivered as u64);
+            add(&m.drops, d.dropped as u64);
             if d.dropped > 0 {
                 debug!(id, topic, dropped = d.dropped, "subscriber queues full");
             }
@@ -211,6 +244,7 @@ async fn write_loop(
     mut rx: mpsc::Receiver<Bytes>,
     kill: CancellationToken,
     done: CancellationToken,
+    shared: Arc<Shared>,
 ) {
     // `true` if we were killed between frames, so the stream is still
     // frame-aligned and we can append an ERROR frame.
@@ -241,6 +275,7 @@ async fn write_loop(
             debug!(error = %e, "write failed");
             break;
         }
+        add(&shared.metrics.bytes_out, bytes.len() as u64);
     }
     if aligned_kill {
         let err = Frame::Error {

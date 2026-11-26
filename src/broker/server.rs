@@ -8,16 +8,37 @@ use std::time::Duration;
 use tokio::net::{TcpListener, TcpSocket, ToSocketAddrs};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 
+use super::metrics::{Metrics, Rates, Snapshot};
 use super::router::Router;
 use super::{ClientId, Config, connection};
+use crate::protocol::codec::encode_publish;
+
+/// Topic the broker publishes its own counters on.
+pub const STATS_TOPIC: &str = "$SYS/broker/stats";
 
 /// State shared by every connection task.
 #[derive(Debug)]
 pub(crate) struct Shared {
     pub config: Config,
     pub router: Router,
+    pub metrics: Metrics,
+}
+
+/// Read-only view of a running broker, usable after `run()` has taken the
+/// `Server` (tests and embedders use it to read metrics).
+#[derive(Debug, Clone)]
+pub struct BrokerHandle {
+    shared: Arc<Shared>,
+}
+
+impl BrokerHandle {
+    pub fn snapshot(&self) -> Snapshot {
+        self.shared
+            .metrics
+            .snapshot(self.shared.router.subscription_count())
+    }
 }
 
 /// A bound broker, ready to [`run`](Server::run).
@@ -47,6 +68,7 @@ impl Server {
             listener,
             shared: Arc::new(Shared {
                 router: Router::new(config.slow_drop_limit),
+                metrics: Metrics::default(),
                 config,
             }),
         })
@@ -56,11 +78,26 @@ impl Server {
         self.listener.local_addr()
     }
 
+    pub fn handle(&self) -> BrokerHandle {
+        BrokerHandle {
+            shared: Arc::clone(&self.shared),
+        }
+    }
+
     /// Accept connections until `shutdown` is cancelled.
     pub async fn run(self, shutdown: CancellationToken) -> io::Result<()> {
         info!(addr = %self.local_addr()?, "minibroker listening");
         let mut next_id: ClientId = 0;
         let mut conns = JoinSet::new();
+
+        let interval = self.shared.config.stats_interval;
+        if !interval.is_zero() {
+            tokio::spawn(stats_loop(
+                Arc::clone(&self.shared),
+                interval,
+                shutdown.clone(),
+            ));
+        }
 
         loop {
             tokio::select! {
@@ -71,9 +108,12 @@ impl Server {
                         let id = next_id;
                         let shared = Arc::clone(&self.shared);
                         let cancel = shutdown.child_token();
-                        conns.spawn(async move {
-                            connection::run(id, stream, peer, shared, cancel).await
-                        });
+                        // Every log line from this connection carries its id
+                        // and peer address.
+                        let span = info_span!("conn", id, %peer);
+                        conns.spawn(
+                            connection::run(id, stream, shared, cancel).instrument(span),
+                        );
                     }
                     Err(e) => {
                         // EMFILE/ENFILE (out of file descriptors) or
@@ -110,6 +150,36 @@ impl Server {
         }
         debug!("all connections closed");
         Ok(())
+    }
+}
+
+/// Every `interval`: log rates and publish a JSON snapshot on
+/// [`STATS_TOPIC`] (`mb-cli sub '$SYS/#'` to watch it).
+async fn stats_loop(shared: Arc<Shared>, interval: Duration, shutdown: CancellationToken) {
+    let mut tick = tokio::time::interval(interval);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tick.tick().await; // first tick fires immediately
+    let mut prev = shared.metrics.snapshot(0);
+    let mut prev_at = tokio::time::Instant::now();
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => return,
+            _ = tick.tick() => {}
+        }
+        let now = shared.metrics.snapshot(shared.router.subscription_count());
+        let now_at = tokio::time::Instant::now();
+        let rates = Rates::between(&prev, &now, (now_at - prev_at).as_secs_f64());
+        info!(
+            active = now.connections_active,
+            subs = now.subscriptions,
+            drops_total = now.drops,
+            "stats: {rates}"
+        );
+        if let Ok(frame) = encode_publish(STATS_TOPIC, now.to_json(&rates).as_bytes()) {
+            shared.router.publish(STATS_TOPIC, &frame);
+        }
+        prev = now;
+        prev_at = now_at;
     }
 }
 

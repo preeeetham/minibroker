@@ -429,3 +429,41 @@ subscriber**. That's the first suspect for P12.
 * **Why:** our clients have no use for a read-only connection, and treating
   EOF as a disconnect frees the client's resources immediately. MQTT
   brokers do the same. Tested in `half_closed_client_is_cleaned_up`.
+
+---
+
+## P9 — Observability
+
+### D48. `tracing` with one span per connection
+* **Why:** wrapping each connection task in `info_span!("conn", id, peer)`
+  stamps every log line from that task, its writer and anything it calls
+  with `conn{id=7 peer=…}`. You can follow one client through interleaved
+  logs from thousands. Log level is chosen at runtime with `RUST_LOG`
+  (e.g. `RUST_LOG=minibroker=debug`).
+
+### D49. Plain `AtomicU64` counters with `Relaxed` ordering
+* *Alternatives:* the `metrics` / `prometheus` crates, or per-thread counters.
+* **Why:** ten counters don't justify a dependency. `Relaxed` is correct
+  because each counter is independent, and nobody needs "publishes_in and
+  deliveries read at the same instant". It's also the cheapest atomic
+  operation. On ARM and x86 it's a single atomic add.
+* *Known cost:* every publish from every core increments the same counters,
+  so those cache lines bounce between cores. If P12 profiling shows it,
+  the fix is per-worker sharded counters summed on read.
+
+### D50. `connections_active` decremented by an RAII guard
+* **Why:** when the shutdown grace period expires, connection tasks are
+  *aborted*. Code after the last `.await` never runs, but `Drop` does,
+  because aborting a task drops its future. A guard object keeps the gauge
+  correct either way. Plain `fetch_sub` at the end of the function would
+  leak "active" connections on abort.
+
+### D51. Stats on `$SYS/broker/stats` (JSON) plus a periodic log line
+* *Alternatives:* an HTTP `/metrics` endpoint (Prometheus format).
+* **Why:** it reuses the broker's own pub/sub, so no extra port or HTTP
+  stack. Any client can watch it: `mb-cli sub '$SYS/#'`. The Python load
+  tool (P11) uses it to read broker-side drops. This is the same convention
+  MQTT brokers use (`$SYS/...`). The JSON is written by hand to avoid
+  depending on serde for one flat object.
+* *Trade-off:* not directly scrapeable by Prometheus. An HTTP exporter
+  could be added later without changing the broker internals.

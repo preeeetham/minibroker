@@ -1,12 +1,13 @@
 //! The broker: accepts connections, routes PUBLISH frames to subscribers.
 
 mod connection;
+pub mod metrics;
 pub mod router;
 mod server;
 
 use std::time::Duration;
 
-pub use server::Server;
+pub use server::{BrokerHandle, STATS_TOPIC, Server};
 
 use crate::protocol::DEFAULT_MAX_FRAME_LEN;
 
@@ -26,6 +27,9 @@ pub struct Config {
     /// Disconnect a subscriber after this many consecutive dropped
     /// messages. 0 = never disconnect, only drop.
     pub slow_drop_limit: u32,
+    /// How often to log stats and publish them on `$SYS/broker/stats`.
+    /// Zero disables it.
+    pub stats_interval: Duration,
 }
 
 impl Default for Config {
@@ -37,6 +41,7 @@ impl Default for Config {
             shutdown_grace: Duration::from_secs(5),
             listen_backlog: 1024,
             slow_drop_limit: 1000,
+            stats_interval: Duration::from_secs(10),
         }
     }
 }

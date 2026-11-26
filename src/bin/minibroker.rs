@@ -32,6 +32,9 @@ struct Args {
     /// messages (0 = only drop, never disconnect).
     #[arg(long, default_value_t = 1000)]
     slow_drop_limit: u32,
+    /// Seconds between stats reports (0 = off).
+    #[arg(long, default_value_t = 10)]
+    stats_secs: u64,
 }
 
 #[tokio::main]
@@ -50,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
         shutdown_grace: Duration::from_secs(args.grace_secs),
         listen_backlog: args.backlog,
         slow_drop_limit: args.slow_drop_limit,
+        stats_interval: Duration::from_secs(args.stats_secs),
     };
 
     let server = Server::bind(&args.addr, config)
