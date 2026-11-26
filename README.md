@@ -17,25 +17,9 @@ shutdown, and profiler-driven optimizations with before/after numbers.
 
 ## Architecture
 
-```
-                         ┌───────────────────────── minibroker ─────────────────────────┐
-                         │                                                              │
- publisher ──TCP──▶ read half ─▶ FrameCodec ─▶ handle_frame ─▶ Router (RwLock)           │
-                         │       (length-      validate topic   ├ exact:   HashMap        │
-                         │        prefixed,    encode ONCE      └ wildcard: topic trie   │
-                         │        zero-copy)        │                    │              │
-                         │                          │  Bytes::clone (refcount, no copy) │
-                         │                          ▼                    ▼              │
-                         │                bounded mpsc<Bytes>   bounded mpsc<Bytes>     │
-                         │                  (per client)          (per client)         │
-                         │                          │ try_send: full → drop,           │
-                         │                          │ N drops in a row → disconnect    │
-                         │                          ▼                    ▼              │
-                         │                write_loop: recv_many(256) → one writev()     │
-                         └──────────────────────────┼────────────────────┼─────────────┘
-                                                    ▼                    ▼
-                                               subscriber           subscriber
-```
+![minibroker architecture](docs/architecture.png)
+
+<sub>Drawn in Excalidraw. Edit [`docs/architecture.excalidraw`](docs/architecture.excalidraw) at excalidraw.com.</sub>
 
 * **One Tokio task per connection** reads and parses frames. A second
   task per connection owns the write half and drains a **bounded queue**.
