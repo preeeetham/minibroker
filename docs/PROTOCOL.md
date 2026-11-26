@@ -1,0 +1,85 @@
+# minibroker wire protocol (v1)
+
+minibroker speaks a small **binary, length-prefixed** protocol over TCP.
+TCP is a byte stream with no message boundaries, so every message is wrapped
+in a frame that starts with its own length.
+
+## Frame layout
+
+```
+ 0                   4         5
+ +-------------------+---------+------------------------------+
+ | length: u32 (BE)  | kind:u8 | body: (length - 1) bytes     |
+ +-------------------+---------+------------------------------+
+```
+
+* `length` counts the `kind` byte **plus** the body. It is never 0.
+* All integers are **big-endian** (network byte order).
+* The server rejects frames with `length > max_frame_len` (default 1 MiB)
+  *before* buffering them, so a client cannot make the broker allocate an
+  arbitrary amount of memory by sending a huge length prefix.
+
+### Strings (`str16`)
+
+```
+ +-----------------+----------------------+
+ | len: u16 (BE)   | len bytes of UTF-8   |
+ +-----------------+----------------------+
+```
+
+## Frame kinds
+
+| kind | name        | direction        | body                                   |
+|------|-------------|------------------|----------------------------------------|
+| 0x01 | SUBSCRIBE   | client → broker  | `filter: str16`                        |
+| 0x02 | UNSUBSCRIBE | client → broker  | `filter: str16`                        |
+| 0x03 | PUBLISH     | both directions  | `topic: str16`, `payload: rest of frame` |
+| 0x04 | PING        | client → broker  | empty                                  |
+| 0x05 | PONG        | broker → client  | empty                                  |
+| 0x06 | ERROR       | broker → client  | `code: u8`, `message: rest (UTF-8)`    |
+
+The broker delivers messages to subscribers as ordinary `PUBLISH` frames, so
+a client needs only one decoder for both directions.
+
+### Error codes
+
+| code | meaning                                          | connection closed? |
+|------|--------------------------------------------------|--------------------|
+| 1    | malformed frame (bad length, kind, UTF-8, ...)   | yes                |
+| 2    | invalid topic or topic filter                    | no                 |
+| 3    | frame too large                                  | yes                |
+| 4    | slow consumer: too many messages were dropped    | yes                |
+| 5    | broker shutting down                             | yes                |
+
+## Topics and filters
+
+* Topics are `/`-separated UTF-8 levels, e.g. `vehicle/42/speed`.
+* A topic must be non-empty, at most 65 535 bytes, contain no NUL byte, and
+  contain no wildcard characters.
+* **Filters** (used in SUBSCRIBE) may also contain wildcards:
+  * `+` matches exactly one level: `vehicle/+/speed` matches `vehicle/42/speed`.
+  * `#` matches zero or more trailing levels and must be the last level:
+    `vehicle/#` matches `vehicle`, `vehicle/42` and `vehicle/42/speed`.
+  * A wildcard must occupy a whole level (`veh+` is invalid).
+
+## Ordering and acknowledgements
+
+* Frames on one connection are processed **in order**. There is no SUBACK.
+  A client that needs to know a subscription is active sends `PING` after
+  `SUBSCRIBE`: once it gets `PONG`, the subscription is in place.
+* Messages from one publisher to one subscriber arrive in publish order.
+* Delivery is **at most once**. A subscriber that falls too far behind has
+  messages dropped (and is eventually disconnected with error code 4).
+  See `DECISIONS.md`.
+
+## Example
+
+`PUBLISH` to topic `a/b` with payload `hi`:
+
+```
+00 00 00 08   length = 8 (1 kind + 2 len + 3 topic + 2 payload)
+03            kind = PUBLISH
+00 03         topic length = 3
+61 2f 62      "a/b"
+68 69         "hi"
+```
