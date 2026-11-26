@@ -4,6 +4,7 @@ mod connection;
 pub mod metrics;
 pub mod router;
 mod server;
+mod trie;
 
 use std::time::Duration;
 

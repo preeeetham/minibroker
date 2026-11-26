@@ -1,0 +1,40 @@
+100.0%  <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+100.0%  <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0},
+100.0%  std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{
+100.0%  tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closu
+100.0%  <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runt
+100.0%  <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler
+100.0%  <tokio::runtime::blocking::pool::Inner>::run
+100.0%  [libc.so.6]
+100.0%  <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::mul
+100.0%  tokio-rt-worker
+100.0%  <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::schedule
+100.0%  tokio::runtime::scheduler::multi_thread::worker::run
+100.0%  <std::sys::thread::unix::Thread>::new::thread_start
+ 99.3%  <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+ 91.2%  <tracing::instrument::Instrumented<minibroker::broker::connection::write_loop::{closure#0}> as core::future::f
+ 91.2%  <tokio::runtime::task::core::Core<tracing::instrument::Instrumented<minibroker::broker::connection::write_loop
+ 91.2%  <tokio::runtime::task::harness::Harness<tracing::instrument::Instrumented<minibroker::broker::connection::writ
+ 76.0%  <core::future::poll_fn::PollFn<minibroker::broker::connection::write_loop::{closure#0}::{closure#1}> as core::
+ 72.0%  <tokio::io::util::write_all::WriteAll<tokio::net::tcp::split_owned::OwnedWriteHalf> as core::future::future::F
+ 71.6%  <tokio::net::tcp::stream::TcpStream>::poll_write_priv
+ 70.9%  <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write
+ 70.7%  <&std::os::unix::net::stream::UnixStream as core::io::write::Write>::write
+ 70.4%  __send
+ 67.8%  el0t_64_sync_handler
+ 67.8%  el0t_64_sync
+ 67.5%  el0_svc
+ 63.6%  do_el0_svc
+ 63.2%  invoke_syscall.constprop.0
+ 60.8%  __arm64_sys_sendto
+ 60.3%  __sys_sendto
+ 58.9%  __sock_sendmsg
+ 58.3%  inet_sendmsg
+ 57.9%  tcp_sendmsg
+ 52.5%  tcp_sendmsg_locked
+ 47.8%  tcp_push
+ 47.7%  __tcp_push_pending_frames
+ 47.4%  tcp_write_xmit
+ 39.4%  __tcp_transmit_skb
+ 38.3%  ip_queue_xmit
+ 38.1%  __ip_queue_xmit

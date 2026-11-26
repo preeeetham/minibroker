@@ -568,3 +568,97 @@ Things worth explaining in an interview:
 * **Wildcard scan is linear:** each non-matching wildcard filter adds
   ~13 ns. 10 000 wildcard filters → **134 µs per publish** (≈7 400
   publishes/s ceiling). That's the clearest optimization target for P12.
+
+---
+
+## P12 — Profiling and optimization
+
+Method: measure, form a hypothesis from the profile, change one thing,
+re-measure under the same workload. "Before" binaries were rebuilt from the
+previous commit in a separate `git worktree` and run *alternately* with
+"after" on the same idle machine, so drift in machine state affects both
+equally.
+
+### D57. Optimization #1: wildcard filters in a topic trie
+* **Evidence:** criterion `router_wildcard_filters` (P11) showed matching is
+  linear in the number of wildcard filters, ~13 ns each: 10 000 filters →
+  134 µs per publish (≈7 400 publishes/s ceiling for the *whole broker*,
+  since routing runs under the shared lock).
+* **Change:** `src/broker/trie.rs`. One edge per filter level, dedicated
+  `+` and `#` slots. Matching walks only branches that can match:
+  O(levels × wildcard branching), independent of the number of filters.
+  Walking uses cloned `str::Split` iterators, so no Vec of levels is
+  allocated per publish. Removal prunes empty branches, so one-off filters
+  don't leak nodes.
+* **Correctness:** a proptest differential test checks the trie returns
+  exactly the subscribers the old linear matcher would, for random filters
+  and topics, and that removing everything leaves the trie empty.
+* **Result (criterion, ns per publish):**
+
+  | wildcard filters | before (scan) | after (trie) | speedup |
+  |-----------------:|--------------:|-------------:|--------:|
+  | 0                | 58 ns         | 61 ns        | same    |
+  | 10               | 169 ns        | 91 ns        | 1.9×    |
+  | 100              | 1.54 µs       | 121 ns       | 13×     |
+  | 1 000            | 13.3 µs       | 120 ns       | 110×    |
+  | 10 000           | 134 µs        | 120 ns       | **1 100×** |
+
+* **A regression I caused and fixed:** the first trie version made the
+  *zero-wildcard* case 16% slower (58 → 73 ns), because every publish now
+  called into an empty trie. An `is_empty()` fast path restored it. That
+  case matters most, since many deployments have no wildcard subscribers.
+* Exact topics stay in the `HashMap`. One hash of the whole topic is
+  cheaper than one hash per level, and exact subscriptions are the common case.
+
+### D58. Optimization #2: batch the writer with `recv_many` + `writev`
+* **Evidence (Linux, `tools/profile/run.sh`, 10 subscribers, 200 000 ×
+  64 B):**
+  * `strace -c`: **2 000 010 `sendto` calls for 2 000 000 deliveries**,
+    exactly one syscall per message per subscriber.
+  * `perf`: 91% of broker CPU in `write_loop`, 70% inside the `sendto`
+    syscall. The kernel's TCP path (`tcp_sendmsg` → `tcp_push` →
+    `ip_queue_xmit`) ran once per 64-byte message.
+    (`bench/results/profile_before.flamegraph.svg`)
+* **Change:** the writer waits for one frame, then `recv_many` takes up to
+  256 already-queued frames *without waiting*, and writes them with
+  one vectored `writev`. Each `IoSlice` points straight into the shared
+  `Bytes`, so the payload is never copied into a staging buffer (the
+  zero-copy fan-out from D36 is kept). Short writes are handled by
+  advancing through fully written buffers and into a partially written
+  one. A test pushes 200 × 64 KiB through an 8 KiB receive buffer to force
+  short writes and checks every byte.
+* *Alternatives:* `BufWriter` (copies every payload into its buffer, and
+  must decide when to flush), or a timer-based flush (adds latency).
+  `recv_many` batches only what's *already* waiting, so an idle
+  connection still sends each message immediately. Batching adapts to
+  load without adding delay.
+* **Result, Linux (Docker, same workload):**
+
+  |                     | before        | after                 |
+  |---------------------|---------------|-----------------------|
+  | write syscalls      | 2 000 010 `sendto` | **24 830 `writev`** (80× fewer) |
+  | `epoll_pwait` calls | 17 249        | 530                   |
+  | deliveries/s        | 4.0 M         | **5.9 M** (+48%)      |
+
+* **Result, macOS (`examples/fanout`, median of 3 alternating runs):**
+
+  | subscribers | before   | after     | speedup |
+  |------------:|---------:|----------:|--------:|
+  | 1           | 351 k/s  | 2.55 M/s  | 7.3×    |
+  | 10          | 238 k/s  | 1.94 M/s  | 8.1×    |
+  | 100         | 443 k/s  | 13.3 M/s  | **30×** |
+
+  The gain is far larger on macOS: its per-syscall cost on loopback is much
+  higher than Linux's, so removing syscalls matters more there.
+* **Latency didn't get worse** (loadgen, alternating runs): 1→1 at
+  50k msg/s: p50 156 → 107 µs, p99.9 507 → 243 µs. 4×4 at 5k msg/s: p50
+  154 → 169 µs, p99.9 2.5 ms → 1.0 ms. Batching only groups messages that
+  were already waiting, so it doesn't delay the first one.
+
+### Not done (yet), with reasons
+* **Forwarding the publisher's original frame bytes** instead of
+  re-encoding (removes the last payload copy, D36). The profile shows
+  encoding isn't significant next to the syscall path, so it isn't worth the
+  added complexity of keeping raw frame bytes alongside the parsed frame.
+* **Sharded metric counters** (D49). `fetch_add` on the shared counters
+  didn't appear in the top frames of either profile.

@@ -192,3 +192,36 @@ async fn binary_and_empty_payloads() {
     assert_eq!(recv(&mut sub).await.1, Bytes::from(blob));
     assert_eq!(recv(&mut sub).await.1, Bytes::new());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn large_batches_survive_short_writes() {
+    // 200 x 64 KiB to a client with a small receive buffer that only starts
+    // reading after everything is queued: the writer's vectored writes are
+    // forced into many partial (short) writes. Every byte must arrive intact
+    // and in order.
+    let b = common::start(minibroker::broker::Config {
+        outbound_queue: 1024,
+        ..minibroker::broker::Config::default()
+    })
+    .await;
+    let sock = tokio::net::TcpSocket::new_v4().unwrap();
+    sock.set_recv_buffer_size(8 * 1024).unwrap();
+    let mut sub = Client::from_stream(sock.connect(b.addr).await.unwrap()).unwrap();
+    sub.subscribe("big").await.unwrap();
+    let mut publ = Client::connect(b.addr).await.unwrap();
+    let payload = |i: u32| -> Vec<u8> {
+        (0..64 * 1024u32)
+            .map(|j| (i.wrapping_mul(31).wrapping_add(j)) as u8)
+            .collect()
+    };
+    for i in 0..200u32 {
+        publ.feed_publish("big", payload(i)).await.unwrap();
+    }
+    publ.ping().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    for i in 0..200u32 {
+        let m = timeout(T, sub.recv()).await.unwrap().unwrap();
+        assert_eq!(m.payload.len(), 64 * 1024);
+        assert!(m.payload == payload(i), "message {i} corrupted");
+    }
+}

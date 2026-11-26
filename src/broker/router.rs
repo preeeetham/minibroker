@@ -2,8 +2,9 @@
 //!
 //! ```text
 //!   exact:    "vehicle/42/speed" ─▶ {3, 7}        O(1) hash lookup
-//!   wildcard: "vehicle/+/speed"  ─▶ {9}           scanned on every publish
-//!             "vehicle/#"        ─▶ {3}
+//!   wildcard: trie of filters                     O(levels) walk (trie.rs)
+//!             vehicle ─ + ─ speed ─▶ {9}
+//!                     └ #         ─▶ {3}
 //!   clients:  3 ─▶ Subscriber { tx, ... }
 //! ```
 //!
@@ -21,7 +22,8 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 
 use super::ClientId;
-use crate::protocol::topic::{is_wildcard, matches};
+use super::trie::Trie;
+use crate::protocol::topic::is_wildcard;
 
 /// A connected client as seen by the router.
 #[derive(Debug)]
@@ -37,7 +39,9 @@ pub(crate) struct Subscriber {
 struct Table {
     clients: HashMap<ClientId, Subscriber>,
     exact: HashMap<String, HashSet<ClientId>>,
-    wildcard: HashMap<String, HashSet<ClientId>>,
+    /// Was a `HashMap<filter, ids>` scanned linearly on every publish; see
+    /// DECISIONS.md D57 for the before/after.
+    wildcard: Trie,
     /// Reverse index so disconnect is O(own subscriptions), not O(all topics).
     subs_of: HashMap<ClientId, HashSet<String>>,
 }
@@ -111,12 +115,11 @@ impl Router {
         if !t.subs_of.entry(id).or_default().insert(filter.to_owned()) {
             return false;
         }
-        let map = if is_wildcard(filter) {
-            &mut t.wildcard
+        if is_wildcard(filter) {
+            t.wildcard.insert(filter, id);
         } else {
-            &mut t.exact
-        };
-        map.entry(filter.to_owned()).or_default().insert(id);
+            t.exact.entry(filter.to_owned()).or_default().insert(id);
+        }
         true
     }
 
@@ -137,19 +140,17 @@ impl Router {
         let t = self.read();
 
         let mut targets: Vec<ClientId> = Vec::new();
-        let mut sources = 0;
         if let Some(ids) = t.exact.get(topic) {
             targets.extend(ids);
-            sources += 1;
         }
-        for (filter, ids) in &t.wildcard {
-            if matches(filter, topic) {
-                targets.extend(ids);
-                sources += 1;
-            }
+        let exact_count = targets.len();
+        // Fast path: most deployments have no wildcard subscribers at all.
+        if !t.wildcard.is_empty() {
+            t.wildcard.collect(topic, &mut targets);
         }
         // A client subscribed to both `a/b` and `a/#` gets the message once.
-        if sources > 1 {
+        // Only needed when wildcard filters contributed anything.
+        if targets.len() > exact_count && targets.len() > 1 {
             targets.sort_unstable();
             targets.dedup();
         }
@@ -194,16 +195,15 @@ impl Router {
 }
 
 fn remove_from(t: &mut Table, filter: &str, id: ClientId) {
-    let map = if is_wildcard(filter) {
-        &mut t.wildcard
-    } else {
-        &mut t.exact
-    };
-    if let Some(ids) = map.get_mut(filter) {
+    if is_wildcard(filter) {
+        t.wildcard.remove(filter, id); // prunes empty branches
+        return;
+    }
+    if let Some(ids) = t.exact.get_mut(filter) {
         ids.remove(&id);
         // Drop empty entries, otherwise one-off topics leak memory forever.
         if ids.is_empty() {
-            map.remove(filter);
+            t.exact.remove(filter);
         }
     }
 }

@@ -1,0 +1,19 @@
+router_fan_out/1        time:   [60.319 ns 60.970 ns 61.840 ns]
+                        time:   [−2.6956% +1.0949% +4.8436%] (p = 0.58 > 0.05)
+router_fan_out/10       time:   [273.04 ns 278.96 ns 286.79 ns]
+                        time:   [−3.6264% +2.5006% +8.4259%] (p = 0.42 > 0.05)
+router_fan_out/100      time:   [2.6221 µs 2.6820 µs 2.7603 µs]
+                        time:   [−0.5647% +5.5334% +12.001%] (p = 0.08 > 0.05)
+router_fan_out/1000     time:   [31.147 µs 31.564 µs 32.102 µs]
+                        time:   [−3.6312% +0.8260% +5.6089%] (p = 0.72 > 0.05)
+router_wildcard_filters/0
+                        time:   [59.673 ns 61.066 ns 62.682 ns]
+router_wildcard_filters/10
+                        time:   [89.622 ns 90.789 ns 91.878 ns]
+router_wildcard_filters/100
+                        time:   [118.97 ns 121.39 ns 124.21 ns]
+router_wildcard_filters/1000
+                        time:   [118.32 ns 119.88 ns 121.41 ns]
+router_wildcard_filters/10000
+                        time:   [118.97 ns 120.47 ns 121.93 ns]
+matches_plus_hash       time:   [28.041 ns 28.422 ns 28.994 ns]

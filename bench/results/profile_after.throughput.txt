@@ -1,0 +1,1 @@
+subs=10 msgs=200000 size=64B: 2000000 deliveries in 0.337s = 5933865 msg/s delivered (380 MB/s)

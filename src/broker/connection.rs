@@ -36,6 +36,11 @@ use crate::protocol::codec::encode_publish;
 use crate::protocol::topic::{validate_filter, validate_topic};
 use crate::protocol::{ErrorCode, Frame, FrameCodec, ProtocolError};
 
+/// Most frames the writer hands to one `writev` call (D58). Linux caps an
+/// iovec array at 1024 entries (IOV_MAX); 256 leaves headroom and already
+/// cuts syscalls by up to 256x.
+const WRITE_BATCH: usize = 256;
+
 /// Upper bound on any single "last words" write to a closing client.
 const FAREWELL_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -289,19 +294,24 @@ async fn write_loop(
     // `true` if we were killed between frames, so the stream is still
     // frame-aligned and we can append an ERROR frame.
     let mut aligned_kill = false;
+    // Reused across iterations: no per-batch allocation in steady state.
+    let mut batch: Vec<Bytes> = Vec::with_capacity(WRITE_BATCH);
     loop {
-        let bytes = tokio::select! {
+        // Wait for at least one frame, then take everything else that is
+        // already queued (up to WRITE_BATCH) without waiting (D58).
+        let n = tokio::select! {
             biased;
             _ = kill.cancelled() => {
                 aligned_kill = true;
                 break;
             }
-            m = rx.recv() => match m {
-                Some(b) => b,
-                None => break,
-            },
+            n = rx.recv_many(&mut batch, WRITE_BATCH) => n,
         };
-        // A slow consumer's kernel send buffer is full, so write_all can
+        if n == 0 {
+            break; // all senders dropped and the queue is drained
+        }
+        let total: usize = batch.iter().map(Bytes::len).sum();
+        // A slow consumer's kernel send buffer is full, so the write can
         // wait forever. Racing it against `kill` is what lets us actually
         // get rid of the client.
         let res = tokio::select! {
@@ -309,13 +319,14 @@ async fn write_loop(
             // Cancelled mid-frame: the peer has a partial frame, so we
             // can't send anything else that it could parse. Just close.
             _ = kill.cancelled() => break,
-            r = wr.write_all(&bytes) => r,
+            r = write_all_vectored(&mut wr, &mut batch) => r,
         };
         if let Err(e) = res {
             debug!(error = %e, "write failed");
             break;
         }
-        add(&shared.metrics.bytes_out, bytes.len() as u64);
+        batch.clear();
+        add(&shared.metrics.bytes_out, total as u64);
     }
     if aligned_kill {
         let err = Frame::Error {
@@ -329,4 +340,38 @@ async fn write_loop(
     // Send FIN so the peer sees a clean EOF after the last frame.
     let _ = wr.shutdown().await;
     done.cancel();
+}
+
+/// Write every buffer in `bufs` with as few `writev` syscalls as possible,
+/// without copying them into one contiguous buffer. Handles short writes by
+/// advancing past fully written buffers and into a partially written one.
+/// Leaves `bufs` in an unspecified (partially consumed) state.
+async fn write_all_vectored(wr: &mut OwnedWriteHalf, bufs: &mut [Bytes]) -> std::io::Result<()> {
+    use bytes::Buf;
+    use std::io::IoSlice;
+
+    let mut first = 0;
+    while first < bufs.len() {
+        let slices: Vec<IoSlice<'_>> = bufs[first..].iter().map(|b| IoSlice::new(b)).collect();
+        let mut written = wr.write_vectored(&slices).await?;
+        drop(slices);
+        if written == 0 {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        while written > 0 {
+            let len = bufs[first].len();
+            if written >= len {
+                written -= len;
+                first += 1;
+            } else {
+                bufs[first].advance(written);
+                written = 0;
+            }
+        }
+        // Skip any empty buffers so the loop condition stays meaningful.
+        while first < bufs.len() && bufs[first].is_empty() {
+            first += 1;
+        }
+    }
+    Ok(())
 }

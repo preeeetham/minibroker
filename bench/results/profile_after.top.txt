@@ -1,0 +1,40 @@
+100.0%  <tokio::runtime::scheduler::multi_thread::worker::Context>::run
+100.0%  std::sys::backtrace::__rust_begin_short_backtrace::<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{
+100.0%  <std::sys::thread::unix::Thread>::new::thread_start
+100.0%  tokio-rt-worker
+100.0%  <tokio::runtime::blocking::pool::Inner>::run
+100.0%  <std::thread::lifecycle::spawn_unchecked<<tokio::runtime::blocking::pool::Spawner>::spawn_thread::{closure#0},
+100.0%  <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<tokio::runtime::scheduler
+100.0%  tokio::runtime::scheduler::multi_thread::worker::run
+100.0%  <tokio::runtime::blocking::task::BlockingTask<tokio::runtime::scheduler::multi_thread::worker::maybe_move_runt
+100.0%  [libc.so.6]
+100.0%  <tokio::runtime::task::core::Core<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::scheduler::mul
+100.0%  <tokio::runtime::task::harness::Harness<tokio::runtime::blocking::task::BlockingTask<<tokio::runtime::schedule
+100.0%  tokio::runtime::context::runtime::enter_runtime::<tokio::runtime::scheduler::multi_thread::worker::run::{closu
+ 97.9%  <tokio::runtime::scheduler::multi_thread::worker::Context>::run_task
+ 74.9%  <tokio::runtime::task::harness::Harness<tracing::instrument::Instrumented<minibroker::broker::connection::writ
+ 74.8%  <tokio::runtime::task::core::Core<tracing::instrument::Instrumented<minibroker::broker::connection::write_loop
+ 74.7%  <tracing::instrument::Instrumented<minibroker::broker::connection::write_loop::{closure#0}> as core::future::f
+ 58.0%  <core::future::poll_fn::PollFn<minibroker::broker::connection::write_loop::{closure#0}::{closure#1}> as core::
+ 53.1%  <tokio::net::tcp::split_owned::OwnedWriteHalf as tokio::io::async_write::AsyncWrite>::poll_write_vectored
+ 53.1%  <tokio::runtime::io::registration::Registration>::poll_io::<usize, <tokio::io::poll_evented::PollEvented<mio::
+ 52.9%  <&mio::net::tcp::stream::TcpStream as core::io::write::Write>::write_vectored
+ 52.6%  <&std::net::tcp::TcpStream as core::io::write::Write>::write_vectored
+ 52.5%  writev
+ 51.8%  el0t_64_sync
+ 51.8%  el0t_64_sync_handler
+ 51.8%  el0_svc
+ 49.2%  do_el0_svc
+ 49.0%  invoke_syscall.constprop.0
+ 47.1%  __arm64_sys_writev
+ 47.0%  do_writev
+ 46.0%  vfs_writev
+ 44.9%  do_iter_readv_writev
+ 44.6%  sock_write_iter
+ 44.4%  __sock_sendmsg
+ 44.2%  inet_sendmsg
+ 43.8%  tcp_sendmsg
+ 40.7%  tcp_sendmsg_locked
+ 35.4%  tcp_push
+ 35.4%  __tcp_push_pending_frames
+ 35.2%  tcp_write_xmit
