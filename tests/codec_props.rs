@@ -35,7 +35,7 @@ proptest! {
         let mut codec = FrameCodec::default();
         let mut wire = BytesMut::new();
         for f in &frames {
-            codec.encode(f, &mut wire).unwrap();
+            codec.encode(f.clone(), &mut wire).unwrap();
         }
 
         let mut buf = BytesMut::new();

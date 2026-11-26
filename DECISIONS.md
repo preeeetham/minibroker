@@ -195,3 +195,53 @@ Format: **Decision** → *Alternatives* → **Why** → *Cost / what we gave up*
   tens of milliseconds to a small PUBLISH. A broker wants low latency, and it
   batches writes itself (P12), so it doesn't need the kernel to.
   `--nagle` turns Nagle's algorithm back on for experiments.
+
+---
+
+## P4 — Connection handler, client library, mb-cli
+
+### D25. Split each connection into a reader and a writer task
+* **Decision:** `TcpStream::into_split()`. The read half is driven by the
+  connection task. The write half is owned by a spawned `write_loop` that
+  drains a bounded `mpsc::Receiver<Bytes>`.
+* *Alternatives:* one task doing `select!` over "socket readable" and
+  "message to send". Or `Framed` with `split()` and a shared lock.
+* **Why:** the writer is the only place that touches the write half, so
+  there's no lock and no concern about interleaved partial writes. Other
+  connections never write to this socket directly. They push `Bytes` into
+  the queue, which is the seam backpressure attaches to in P7. The reader and
+  writer also run on different worker threads in parallel.
+
+### D26. One outbound queue for everything, including PONG and ERROR
+* **Why:** a single queue gives a single total order of outbound frames.
+  For example, a PONG can never overtake a message published before the PING,
+  and the SUBSCRIBE+PING barrier (D6) relies on that.
+
+### D27. Replies to the client use `send().await` (they wait)
+* **Why:** if a client sends requests but doesn't read replies, its queue
+  fills up and we stop reading its socket. TCP flow control then pushes
+  back on the client itself. A misbehaving client throttles only itself.
+  Fan-out from *other* publishers must never wait like this (P7).
+
+### D28. Ordered close: farewell ERROR → drop sender → writer drains → FIN
+* **Why:** on a protocol error or shutdown the peer should learn why. The
+  farewell frame goes through the same queue, so it arrives after anything
+  already queued. Dropping the last `Sender` ends the writer's `recv()` loop
+  naturally, and `shutdown()` sends FIN so the peer reads a clean EOF.
+* The writer cancels a `writer_done` token when it exits, so a dead socket
+  (peer reset) also stops the reader promptly.
+
+### D29. Explicit `listen()` backlog with a startup warning
+* See DEBUGGING.md #1. The kernel silently caps the backlog at `somaxconn`.
+  The broker now binds through `TcpSocket` so the backlog is explicit and
+  configurable (`--backlog`), and warns at startup if the cap applies.
+  It also sets `SO_REUSEADDR` so a restart isn't blocked by sockets in
+  TIME_WAIT.
+
+### D30. Client library in the crate (`minibroker::client`)
+* **Why:** `mb-cli`, the integration tests and the benchmarks all need a
+  client. One implementation means the tests exercise the same code users
+  would. `subscribe()` uses the PING barrier, and messages that arrive
+  while it waits for the PONG are buffered, not lost.
+* `feed_publish` + `flush` lets load tools put many frames in one
+  syscall. `publish` flushes every time for simplicity.

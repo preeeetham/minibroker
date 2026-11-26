@@ -25,6 +25,9 @@ struct Args {
     /// Seconds to wait for clients to drain on shutdown.
     #[arg(long, default_value_t = 5)]
     grace_secs: u64,
+    /// listen() backlog (capped by the kernel's somaxconn).
+    #[arg(long, default_value_t = 1024)]
+    backlog: u32,
 }
 
 #[tokio::main]
@@ -41,6 +44,7 @@ async fn main() -> anyhow::Result<()> {
         outbound_queue: args.queue,
         tcp_nodelay: !args.nagle,
         shutdown_grace: Duration::from_secs(args.grace_secs),
+        listen_backlog: args.backlog,
     };
 
     let server = Server::bind(&args.addr, config)

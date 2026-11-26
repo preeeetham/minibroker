@@ -20,6 +20,8 @@ pub struct Config {
     pub tcp_nodelay: bool,
     /// How long shutdown waits for connections to drain before aborting them.
     pub shutdown_grace: Duration,
+    /// Requested `listen()` backlog. The kernel caps it at `somaxconn`.
+    pub listen_backlog: u32,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
             outbound_queue: 1024,
             tcp_nodelay: true,
             shutdown_grace: Duration::from_secs(5),
+            listen_backlog: 1024,
         }
     }
 }

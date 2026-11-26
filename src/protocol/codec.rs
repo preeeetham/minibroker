@@ -77,14 +77,6 @@ impl Encoder<Frame> for FrameCodec {
     }
 }
 
-impl Encoder<&Frame> for FrameCodec {
-    type Error = ProtocolError;
-
-    fn encode(&mut self, frame: &Frame, dst: &mut BytesMut) -> Result<(), ProtocolError> {
-        frame.encode_with_limit(dst, self.max_frame_len)
-    }
-}
-
 /// Read a `u16`-length-prefixed UTF-8 string from the front of `buf`.
 fn get_str16(buf: &mut Bytes, what: &'static str) -> Result<String, ProtocolError> {
     if buf.remaining() < 2 {
@@ -254,7 +246,9 @@ mod tests {
 
     fn encode(frame: &Frame) -> BytesMut {
         let mut buf = BytesMut::new();
-        FrameCodec::default().encode(frame, &mut buf).unwrap();
+        frame
+            .encode_with_limit(&mut buf, DEFAULT_MAX_FRAME_LEN)
+            .unwrap();
         buf
     }
 
@@ -419,7 +413,7 @@ mod tests {
         };
         let mut buf = BytesMut::new();
         assert!(matches!(
-            FrameCodec::default().encode(&frame, &mut buf),
+            FrameCodec::default().encode(frame, &mut buf),
             Err(ProtocolError::StringTooLong(70_000))
         ));
         assert!(buf.is_empty(), "nothing may be written on error");
