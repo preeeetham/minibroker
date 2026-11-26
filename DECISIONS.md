@@ -499,3 +499,72 @@ subscriber**. That's the first suspect for P12.
 * The active-connection guard is now created at `accept()` and moved into
   the task. Counting starts before the task is first polled, so the cap
   can't be overshot by connections that haven't started running yet.
+
+---
+
+## P11 — Benchmarks and load tooling
+
+### D54. Two kinds of measurement: criterion micro-benchmarks and an end-to-end load generator
+* **Criterion** (`benches/codec.rs`, `benches/router.rs`) measures
+  single functions in isolation with statistical rigor. Good for
+  before/after on one hot path. It can't see syscalls, scheduling or
+  the network.
+* **`tools/loadgen.py`** drives real TCP connections at a fixed offered
+  rate and records every message's end-to-end latency. Good for "what
+  does a user see". Its numbers include the client's overhead.
+* Results: `bench/results/criterion_baseline.txt` and
+  `bench/results/baseline_*.{json,png}`.
+
+### D55. Fixed-rate (open-loop) load, latency from scheduled time as well as send time
+* *Alternative:* closed-loop ("send, wait for reply, send again"). That
+  measures latency at whatever rate the system happens to sustain, and
+  under overload the generator slows down too, which hides the overload.
+  This is **coordinated omission**.
+* **Decision:** publishers send at a fixed schedule. Each message carries
+  its *scheduled* and its *actual* send time:
+  * `latency_us` (send→receive): the broker's cost.
+  * `latency_from_schedule_us`: also counts any time spent *waiting to be
+    sent*. Under overload this grows without bound, which is the honest
+    result.
+* Found while building it: the first version only had the scheduled
+  timestamp and reported **p50 = 503 µs** at 1k msg/s, even though PING
+  RTT was 65 µs. Adding the send timestamp showed the broker part was
+  163 µs. The rest was the generator's own `asyncio.sleep` waking late.
+  Reporting both separates the generator's lag from the broker's.
+
+### D56. Publishers and subscribers in one process
+* **Why:** latency across machines or processes needs synchronized clocks.
+  In one process, `time.perf_counter_ns()` is a single monotonic clock.
+* *Cost:* every subscriber shares one Python event loop, so with many
+  subscribers the tool's own processing time ends up in the latency (see
+  the 1→50 row below). Python was asked for by the plan as the
+  tooling language, so the Rust `examples/fanout.rs` covers high fan-out
+  throughput instead.
+
+### Baseline results (M4 Pro, release build, 64 B payload, 8 s runs, 1 s warm-up)
+
+| scenario | offered | delivered/s | lost | p50 | p99 | p99.9 |
+|----------|--------:|------------:|-----:|----:|----:|------:|
+| 1 pub → 1 sub   | 1 000/s  | 1 000   | 0 | 160 µs | 247 µs | 432 µs |
+| 1 pub → 1 sub   | 10 000/s | 10 000  | 0 | 39 µs  | 55 µs  | 63 µs  |
+| 1 pub → 1 sub   | 50 000/s | 50 000  | 0 | 57 µs  | 77 µs  | 112 µs |
+| 4 pub → 4 sub   | 20 000/s | 80 000  | 0 | 87 µs  | 166 µs | 194 µs |
+| 1 pub → 50 sub  | 1 000/s  | 50 000  | 0 | 513 µs | 808 µs | 893 µs |
+
+Things worth explaining in an interview:
+* **Lower rate, higher latency** (1k/s is 4× slower than 10k/s). With
+  1 ms between messages, the broker's Tokio workers *park* (block in
+  kqueue) and the CPU drops into an idle state. Each message pays a thread
+  wake-up. At 10k/s the threads stay busy. This is the latency-vs-efficiency
+  trade-off that busy-polling brokers make the other way.
+* **The 1→50 row measures Python more than the broker.** 50 subscribers
+  share one event loop, so the 50th copy of a message waits behind 49
+  others in Python. `examples/fanout.rs` (Rust) shows the broker sustains
+  ~534k deliveries/s at 100 subscribers.
+
+### Criterion highlights (baseline)
+* Decode one 256 B PUBLISH: **76 ns**. 64 frames from one buffer: **22 M frames/s**.
+* Router fan-out: **~28 ns per subscriber** (1 000 subscribers: 30 µs).
+* **Wildcard scan is linear:** each non-matching wildcard filter adds
+  ~13 ns. 10 000 wildcard filters → **134 µs per publish** (≈7 400
+  publishes/s ceiling). That's the clearest optimization target for P12.

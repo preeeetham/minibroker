@@ -82,7 +82,7 @@ impl Router {
         self.table.write().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub(crate) fn register(&self, id: ClientId, tx: mpsc::Sender<Bytes>, kill: CancellationToken) {
+    pub fn register(&self, id: ClientId, tx: mpsc::Sender<Bytes>, kill: CancellationToken) {
         self.write().clients.insert(
             id,
             Subscriber {
@@ -94,7 +94,7 @@ impl Router {
     }
 
     /// Remove a client and all of its subscriptions.
-    pub(crate) fn unregister(&self, id: ClientId) {
+    pub fn unregister(&self, id: ClientId) {
         let mut t = self.write();
         t.clients.remove(&id);
         if let Some(filters) = t.subs_of.remove(&id) {

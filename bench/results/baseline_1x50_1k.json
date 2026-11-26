@@ -1,0 +1,36 @@
+{
+  "config": {
+    "host": "127.0.0.1",
+    "port": 7878,
+    "publishers": 1,
+    "subscribers": 50,
+    "rate": 1000.0,
+    "size": 64,
+    "duration": 8.0,
+    "warmup": 1,
+    "filter": "load/#",
+    "title": null
+  },
+  "sent": 8000,
+  "expected_deliveries": 400000,
+  "received": 400000,
+  "lost": 0,
+  "seq_gaps": 0,
+  "errors": [],
+  "offered_msgs_per_sec": 1000.0,
+  "delivered_msgs_per_sec": 50000.0,
+  "latency_us": {
+    "samples": 350000,
+    "p50": 513.1,
+    "p90": 711.2,
+    "p99": 808.0,
+    "p99.9": 893.0,
+    "max": 1289.8
+  },
+  "latency_from_schedule_us": {
+    "p50": 608.5,
+    "p99": 936.3,
+    "p99.9": 1150.2,
+    "max": 1617.4
+  }
+}
