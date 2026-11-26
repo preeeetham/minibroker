@@ -245,3 +245,88 @@ Format: **Decision** → *Alternatives* → **Why** → *Cost / what we gave up*
   while it waits for the PONG are buffered, not lost.
 * `feed_publish` + `flush` lets load tools put many frames in one
   syscall. `publish` flushes every time for simplicity.
+
+---
+
+## P5 — Topic router
+
+### D31. One `std::sync::RwLock<Table>` around the whole routing table
+* *Alternatives considered:*
+  * `Mutex<Table>`: publishes would serialize even though they only read.
+  * `tokio::sync::RwLock`: only needed if the lock is held across
+    `.await`. It never is here, and the async lock is slower.
+  * A sharded map (`DashMap`) or per-topic locks: better under heavy
+    *subscribe* churn, but wildcard matching has to scan all filters anyway,
+    so sharding by topic doesn't help the wildcard path.
+  * An actor (one router task, commands via a channel): no locks, but every
+    publish pays a channel hop and the router becomes a single-core bottleneck.
+* **Why:** telemetry is read-heavy: millions of publishes, rare
+  subscribes. An RwLock lets all publishers route in parallel. Critical
+  sections are short and synchronous (`try_send` never waits), so the
+  standard library lock is the right tool.
+* *Revisit if:* P12 profiling shows contention on the lock.
+
+### D32. Exact topics in a `HashMap`, wildcard filters in a separate map that is scanned
+* **Why:** most subscriptions in practice are exact (`fleet/42/speed`),
+  and they get an O(1) lookup. Wildcard filters are matched by scanning all
+  of them, O(W) per publish. That's simple and correct, and fine while W
+  is small.
+* *Known limit:* with thousands of wildcard filters, a topic trie
+  (one node per level, `+`/`#` children) would make matching
+  O(levels). It's the next step if benchmarks show the scan dominating.
+
+### D33. Reverse index `subs_of: ClientId → filters`
+* **Why:** on disconnect, only the client's own subscriptions are removed.
+  We never scan the entire table. Empty topic entries are deleted so that
+  one-off topics don't leak memory over the broker's lifetime.
+
+### D34. Deduplicate when a client's filters overlap
+* **Why:** a client subscribed to `a/b` and `a/#` should get one copy, not
+  two (MQTT does the same). Dedup (sort + dedup) only runs when more than one
+  filter matched, so the common single-match path pays nothing.
+
+### D35. Recover from lock poisoning instead of panicking
+* **Why:** a poisoned lock means some thread panicked while holding it. Each
+  table mutation is a single insert/remove, so the table can't be left
+  logically broken, and propagating the panic would take down every
+  connection. Recovering keeps the broker serving.
+
+---
+
+## P6 — Publish path and fan-out
+
+### D36. Encode each PUBLISH once and share the bytes with every subscriber
+* **Decision:** the connection re-encodes the incoming publish into one
+  `Bytes` (`encode_publish`). Each subscriber queue gets `frame.clone()`,
+  which is a refcount increment, not a copy.
+* **Why:** with N subscribers the payload is copied once instead of N
+  times. The router test `fan_out_shares_one_buffer` checks that every
+  subscriber's `Bytes` points at the *same* allocation.
+* *Remaining copy:* that one re-encode still copies the payload once.
+  Forwarding the publisher's original frame bytes would remove it, which is a
+  P12 candidate once measured.
+
+### D37. Fan-out never waits: `try_send`, drop on full
+* **Why:** if fan-out used `send().await`, one slow subscriber would stall
+  the publisher's read loop. Every other subscriber of that publisher would
+  then stall too, which is head-of-line blocking across the whole broker.
+  `try_send` keeps the publisher's speed independent of its slowest
+  consumer. What happens to the slow consumer is P7.
+
+### D38. Self-delivery is allowed
+* A client subscribed to a topic it publishes on receives its own message,
+  as in MQTT's default (no "no-local" option). It's simple, and tests
+  rely on it.
+
+### Measured baseline (before any optimization)
+`examples/fanout.rs`, release build, M4 Pro, 64-byte payloads, 100 000
+messages, publisher batching flushes every 256 frames:
+
+| subscribers | deliveries/s | throughput |
+|-------------|-------------:|-----------:|
+| 1           | ~424 000     | 27 MB/s    |
+| 10          | ~272 000     | 17 MB/s    |
+| 100         | ~534 000     | 34 MB/s    |
+
+The writer currently issues **one `write()` syscall per message per
+subscriber**. That's the first suspect for P12.

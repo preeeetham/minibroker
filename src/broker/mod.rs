@@ -1,6 +1,7 @@
 //! The broker: accepts connections, routes PUBLISH frames to subscribers.
 
 mod connection;
+pub mod router;
 mod server;
 
 use std::time::Duration;
@@ -22,6 +23,9 @@ pub struct Config {
     pub shutdown_grace: Duration,
     /// Requested `listen()` backlog. The kernel caps it at `somaxconn`.
     pub listen_backlog: u32,
+    /// Disconnect a subscriber after this many consecutive dropped
+    /// messages. 0 = never disconnect, only drop.
+    pub slow_drop_limit: u32,
 }
 
 impl Default for Config {
@@ -32,6 +36,7 @@ impl Default for Config {
             tcp_nodelay: true,
             shutdown_grace: Duration::from_secs(5),
             listen_backlog: 1024,
+            slow_drop_limit: 0,
         }
     }
 }

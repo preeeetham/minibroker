@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         tcp_nodelay: !args.nagle,
         shutdown_grace: Duration::from_secs(args.grace_secs),
         listen_backlog: args.backlog,
+        ..Config::default()
     };
 
     let server = Server::bind(&args.addr, config)

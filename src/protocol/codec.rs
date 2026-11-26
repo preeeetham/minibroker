@@ -77,6 +77,23 @@ impl Encoder<Frame> for FrameCodec {
     }
 }
 
+/// Encode a PUBLISH frame straight from borrowed parts (no `Frame` needed).
+pub fn encode_publish(topic: &str, payload: &[u8]) -> Result<Bytes, ProtocolError> {
+    let len = 1 + str16_len(topic)? + payload.len();
+    if len > u32::MAX as usize {
+        return Err(ProtocolError::FrameTooLarge {
+            len,
+            max: u32::MAX as usize,
+        });
+    }
+    let mut dst = BytesMut::with_capacity(LEN_PREFIX + len);
+    dst.put_u32(len as u32);
+    dst.put_u8(kind::PUBLISH);
+    put_str16(&mut dst, topic);
+    dst.put_slice(payload);
+    Ok(dst.freeze())
+}
+
 /// Read a `u16`-length-prefixed UTF-8 string from the front of `buf`.
 fn get_str16(buf: &mut Bytes, what: &'static str) -> Result<String, ProtocolError> {
     if buf.remaining() < 2 {
@@ -417,6 +434,18 @@ mod tests {
             Err(ProtocolError::StringTooLong(70_000))
         ));
         assert!(buf.is_empty(), "nothing may be written on error");
+    }
+
+    #[test]
+    fn encode_publish_matches_frame_encoding() {
+        let frame = Frame::Publish {
+            topic: "a/b".into(),
+            payload: Bytes::from_static(b"xyz"),
+        };
+        assert_eq!(
+            encode_publish("a/b", b"xyz").unwrap(),
+            frame.to_bytes().unwrap()
+        );
     }
 
     #[test]

@@ -31,6 +31,8 @@ use tracing::{debug, info, warn};
 
 use super::ClientId;
 use super::server::Shared;
+use crate::protocol::codec::encode_publish;
+use crate::protocol::topic::{validate_filter, validate_topic};
 use crate::protocol::{ErrorCode, Frame, FrameCodec, ProtocolError};
 
 /// Why a connection ended.
@@ -70,6 +72,10 @@ pub(crate) async fn run(
     let writer_done = CancellationToken::new();
     let writer = tokio::spawn(write_loop(wr, rx, writer_done.clone()));
 
+    // Fired by the router when this client is too slow (P7).
+    let kill = CancellationToken::new();
+    shared.router.register(id, tx.clone(), kill.clone());
+
     let outbox = Outbox { tx };
     let mut frames = FramedRead::new(rd, FrameCodec::new(cfg.max_frame_len));
 
@@ -86,7 +92,7 @@ pub(crate) async fn run(
             Some(Err(e)) => break Close::Protocol(e),
             Some(Ok(f)) => f,
         };
-        if handle_frame(id, frame, &outbox).await.is_err() {
+        if handle_frame(id, frame, &shared, &outbox).await.is_err() {
             break Close::WriterGone;
         }
     };
@@ -109,7 +115,9 @@ pub(crate) async fn run(
         let _ = outbox.tx.send(bytes).await;
     }
 
-    // Dropping the last sender lets the writer drain what's queued and exit.
+    // Remove our subscriptions (and the router's clone of our sender), then
+    // drop our own sender: the writer drains what's queued and exits.
+    shared.router.unregister(id);
     drop(outbox);
     let _ = writer.await;
 
@@ -120,20 +128,52 @@ pub(crate) async fn run(
 }
 
 /// React to one decoded frame from the client.
-async fn handle_frame(id: ClientId, frame: Frame, outbox: &Outbox) -> Result<(), ()> {
+async fn handle_frame(
+    id: ClientId,
+    frame: Frame,
+    shared: &Shared,
+    outbox: &Outbox,
+) -> Result<(), ()> {
     match frame {
-        Frame::Ping => reply(outbox, &Frame::Pong).await,
-        // Router hookup arrives in P5/P6.
-        Frame::Subscribe { .. } | Frame::Unsubscribe { .. } | Frame::Publish { .. } => {
-            debug!(id, ?frame, "frame (no router yet)");
+        Frame::Publish { topic, payload } => {
+            if let Err(e) = validate_topic(&topic) {
+                return reply_error(outbox, ErrorCode::InvalidTopic, format!("{topic:?}: {e}"))
+                    .await;
+            }
+            // Encode once. Every subscriber gets a refcounted clone (D32).
+            let Ok(bytes) = encode_publish(&topic, &payload) else {
+                return Ok(());
+            };
+            let d = shared.router.publish(&topic, &bytes);
+            if d.dropped > 0 {
+                debug!(id, topic, dropped = d.dropped, "subscriber queues full");
+            }
             Ok(())
         }
+        Frame::Subscribe { filter } => {
+            if let Err(e) = validate_filter(&filter) {
+                return reply_error(outbox, ErrorCode::InvalidTopic, format!("{filter:?}: {e}"))
+                    .await;
+            }
+            shared.router.subscribe(id, &filter);
+            debug!(id, filter, "subscribed");
+            Ok(())
+        }
+        Frame::Unsubscribe { filter } => {
+            shared.router.unsubscribe(id, &filter);
+            Ok(())
+        }
+        Frame::Ping => reply(outbox, &Frame::Pong).await,
         // Clients have no reason to send these. Ignore rather than disconnect.
         Frame::Pong | Frame::Error { .. } => {
             debug!(id, ?frame, "ignoring server-only frame from client");
             Ok(())
         }
     }
+}
+
+async fn reply_error(outbox: &Outbox, code: ErrorCode, message: String) -> Result<(), ()> {
+    reply(outbox, &Frame::Error { code, message }).await
 }
 
 /// Queue a reply to this client. Awaits if the client's queue is full, which

@@ -10,12 +10,14 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use super::router::Router;
 use super::{ClientId, Config, connection};
 
 /// State shared by every connection task.
 #[derive(Debug)]
 pub(crate) struct Shared {
     pub config: Config,
+    pub router: Router,
 }
 
 /// A bound broker, ready to [`run`](Server::run).
@@ -43,7 +45,10 @@ impl Server {
         warn_if_backlog_capped(config.listen_backlog);
         Ok(Self {
             listener,
-            shared: Arc::new(Shared { config }),
+            shared: Arc::new(Shared {
+                router: Router::new(config.slow_drop_limit),
+                config,
+            }),
         })
     }
 
