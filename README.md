@@ -1,13 +1,20 @@
 # minibroker
 
 [![CI](https://github.com/preeeetham/minibroker/actions/workflows/ci.yml/badge.svg)](https://github.com/preeeetham/minibroker/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/live%20demo-minibroker.onrender.com-3df5a7?labelColor=0f1115)](https://minibroker.onrender.com)
 
 A small, fast publish/subscribe message broker in Rust + Tokio, built as a
 systems-programming project. It has a binary wire protocol, a fuzzed parser,
 MQTT-style wildcard topics, backpressure for slow consumers, graceful
 shutdown, and profiler-driven optimizations with before/after numbers.
 
-* **[DECISIONS.md](DECISIONS.md)**: every design decision (63 of them), the
+**▶ Live demo: [minibroker.onrender.com](https://minibroker.onrender.com)**.
+A simulated EV fleet streams through the real broker. You can subscribe with
+wildcards, publish messages, and trigger a slow subscriber to watch the
+broker cut it off without slowing anyone else. (Free hosting: the first visit
+after a quiet spell takes ~30 s to wake up.)
+
+* **[DECISIONS.md](DECISIONS.md)**: every design decision (68 of them), the
   alternatives considered, and why.
 * **[DEBUGGING.md](DEBUGGING.md)**: real bugs found while building it, and
   how each was tracked down.
