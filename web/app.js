@@ -404,7 +404,7 @@ function onLogStats(l) {
   $("log-fsync").textContent = compact(l.fsyncs_ps);
   $("log-batch").textContent = l.avg_batch ? l.avg_batch.toFixed(1) : "—";
   $("log-bytes").innerHTML = bytes(l.retained_bytes);
-  $("log-segs").textContent = l.segments;
+  $("log-segs").textContent = `${l.segments} segment${l.segments === 1 ? "" : "s"}`;
   $("log-range").textContent = `${compact(l.first_offset)} → ${compact(l.next_offset)}`;
   // One block per segment; the active one shows how full it is.
   const bar = $("segbar");
