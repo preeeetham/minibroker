@@ -1,0 +1,45 @@
+name: keep-alive
+
+# Render's free plan puts the live demo to sleep after ~15 minutes without
+# incoming traffic, and the next visitor waits ~30 s for it to wake up.
+# This pings it every 10 minutes during the day (08:00-02:00 IST) so it
+# stays awake when people are likely to open it, and lets it sleep at night
+# to save free-plan hours (~18 h/day ≈ 560 of the 750 free hours a month).
+#
+# GitHub cron runs in UTC; IST = UTC+5:30.
+#   08:00 IST = 02:30 UTC     02:00 IST = 20:30 UTC
+on:
+  schedule:
+    - cron: "30-59/10 2 * * *"  # 08:00-08:29 IST
+    - cron: "*/10 3-19 * * *"   # 08:30-01:29 IST
+    - cron: "0-30/10 20 * * *"  # 01:30-02:00 IST
+  workflow_dispatch: # allow a manual run from the Actions tab
+
+permissions: {}
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Ping the demo
+        run: |
+          url="https://minibroker.onrender.com/healthz"
+          # A cold start can take ~30-60 s, so allow a long first request
+          # and a couple of retries before giving up for this round.
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 75 "$url" || true)
+            if [ "$code" = "200" ]; then
+              echo "demo is awake (HTTP $code, attempt $attempt)"
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP ${code:-no response}, retrying in 15 s"
+            sleep 15
+          done
+          # Don't fail the job (no failure emails for a sleepy free host);
+          # just surface a warning in the Actions run.
+          echo "::warning::demo did not answer 200 after 3 attempts"
