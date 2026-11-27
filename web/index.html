@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>minibroker · live demo</title>
+  <meta name="description" content="A pub/sub message broker in Rust + Tokio, running live: wildcard subscriptions, a simulated EV fleet, and backpressure you can trigger.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top" aria-label="minibroker home">
+        <img src="/favicon.svg" alt="" width="26" height="26">
+        <span>minibroker</span>
+      </a>
+      <span class="status-pill" id="status-pill"><span class="dot"></span><span id="status-text">Connecting</span></span>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#playground">Playground</a>
+        <a href="#backpressure">Backpressure</a>
+        <a href="#how">How it works</a>
+      </nav>
+      <a class="btn btn-secondary btn-sm" href="https://github.com/preeeetham/minibroker" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Source
+      </a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-copy">
+      <div class="eyebrow mono">[ rust · tokio · pub/sub ]</div>
+      <h1>A Rust message broker,<br><span class="accent-text">running live</span> right here.</h1>
+      <p class="lede">
+        Twenty-four simulated electric vehicles are streaming telemetry through
+        <b>minibroker</b> right now. Subscribe with wildcards, publish your own
+        messages, and watch the broker cut off a slow consumer without slowing
+        anyone else down. Every message on this page goes through the real broker.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#playground">
+          Open the playground
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/preeeetham/minibroker/blob/main/DECISIONS.md" target="_blank" rel="noopener">Read the design log</a>
+      </div>
+      <div class="session mono">
+        <span>session <b id="session">—</b></span><span class="sep">/</span>
+        <span>uptime <b id="uptime">—</b></span><span class="sep">/</span>
+        <span>broker-wide counters, updated every second</span>
+      </div>
+      </div>
+      <div class="terminal" aria-label="Live messages from the fleet">
+        <div class="term-bar">
+          <span class="lights"><i></i><i></i><i></i></span>
+          <span class="term-title">$ <b>mb-cli sub 'fleet/#'</b></span>
+          <span class="term-live"><i></i>streaming</span>
+        </div>
+        <div class="term-body" id="term"></div>
+        <div class="term-foot"><span>24 vehicles · 3 topics each · 4 Hz</span><span><b id="term-rate">—</b> msg/s</span></div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="kpis" aria-label="Live broker metrics">
+      <article class="card kpi">
+        <div class="kpi-label mono">Published / s</div>
+        <div class="kpi-value" id="kpi-pub">—</div>
+        <div class="kpi-sub"><span id="kpi-pub-total">—</span> total</div>
+        <svg class="spark" id="spark-pub" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </article>
+      <article class="card kpi">
+        <div class="kpi-label mono">Delivered / s</div>
+        <div class="kpi-value" id="kpi-del">—</div>
+        <div class="kpi-sub"><span id="kpi-del-total">—</span> total · <span id="kpi-fanout">—</span> fan-out</div>
+        <svg class="spark" id="spark-del" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </article>
+      <article class="card kpi">
+        <div class="kpi-label mono">Broker latency p99</div>
+        <div class="kpi-value" id="kpi-p99">—</div>
+        <div class="kpi-sub">p50 <span id="kpi-p50">—</span> · publish → delivery</div>
+        <svg class="spark" id="spark-lat" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </article>
+      <article class="card kpi">
+        <div class="kpi-label mono">Connections</div>
+        <div class="kpi-value" id="kpi-conn">—</div>
+        <div class="kpi-sub"><span id="kpi-subs">—</span> subscriptions · <span id="kpi-kicks">—</span> kicked</div>
+        <svg class="spark" id="spark-conn" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </article>
+    </section>
+
+    <!-- Chart + fleet -->
+    <section class="row row-chart" id="playground">
+      <article class="card">
+        <header class="card-head">
+          <div>
+            <h2>Throughput</h2>
+            <p class="muted">Messages per second, last 60 seconds</p>
+          </div>
+          <ul class="legend" aria-label="Legend">
+            <li><span class="swatch" style="--c: var(--series-1)"></span>Published</li>
+            <li><span class="swatch" style="--c: var(--series-2)"></span>Delivered</li>
+          </ul>
+        </header>
+        <div class="chart" id="chart">
+          <svg id="chart-svg" role="img" aria-label="Published and delivered messages per second over the last 60 seconds"></svg>
+          <div class="tooltip" id="chart-tip" hidden></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <div>
+            <h2>Fleet</h2>
+            <p class="muted mono-sm">fleet/<span class="tok">+</span>/{speed,battery,gps} · 4 Hz</p>
+          </div>
+          <span class="chip mono" id="fleet-rate">— msg/s</span>
+        </header>
+        <div class="fleet" id="fleet" aria-live="off"></div>
+      </article>
+    </section>
+
+    <!-- Subscribe + publish -->
+    <section class="row row-console">
+      <article class="card console">
+        <header class="card-head">
+          <div>
+            <h2>Subscribe</h2>
+            <p class="muted">Real broker subscriptions. <span class="tok">+</span> matches one level, <span class="tok">#</span> matches the rest.</p>
+          </div>
+          <div class="feed-tools">
+            <span class="chip mono" id="feed-rate">0 msg/s</span>
+            <button class="btn btn-ghost btn-sm" id="pause" type="button" aria-pressed="false">Pause</button>
+            <button class="btn btn-ghost btn-sm" id="clear" type="button">Clear</button>
+          </div>
+        </header>
+
+        <form class="input-row" id="sub-form" autocomplete="off">
+          <label class="field">
+            <span class="field-prefix mono">SUB</span>
+            <input id="filter" class="mono" spellcheck="false" placeholder="fleet/+/speed" value="fleet/ev-07/#" aria-label="Topic filter">
+          </label>
+          <button class="btn btn-primary" type="submit">Subscribe</button>
+        </form>
+        <div class="presets">
+          <span class="muted small">Try</span>
+          <button type="button" class="preset mono" data-filter="fleet/+/speed">fleet/+/speed</button>
+          <button type="button" class="preset mono" data-filter="fleet/ev-12/#">fleet/ev-12/#</button>
+          <button type="button" class="preset mono" data-filter="demo/#">demo/#</button>
+          <button type="button" class="preset mono" data-filter="$SYS/#">$SYS/#</button>
+        </div>
+        <div class="active-subs" id="active-subs" aria-live="polite"></div>
+
+        <div class="feed" id="feed" role="log" aria-label="Messages from your subscriptions">
+          <div class="feed-empty" id="feed-empty">Subscribe to a filter and messages will stream in here.</div>
+          <div id="feed-rows"></div>
+        </div>
+      </article>
+
+      <article class="card publish">
+        <header class="card-head">
+          <div>
+            <h2>Publish</h2>
+            <p class="muted">Goes through the broker like any client's PUBLISH.</p>
+          </div>
+        </header>
+        <form id="pub-form" autocomplete="off">
+          <label class="field">
+            <span class="field-prefix mono">PUB</span>
+            <input id="pub-topic" class="mono" spellcheck="false" value="demo/hello" aria-label="Topic">
+          </label>
+          <textarea id="pub-payload" class="mono" rows="3" aria-label="Payload" maxlength="256">hello from the browser 👋</textarea>
+          <button class="btn btn-secondary btn-block" type="submit">Publish message</button>
+          <p class="hint small">Subscribe to <code>demo/#</code> to watch it arrive. Topics must start with <code>demo/</code>.</p>
+        </form>
+        <div class="toast" id="toast" role="status" hidden></div>
+      </article>
+    </section>
+
+    <!-- Backpressure -->
+    <section class="card stress" id="backpressure">
+      <div class="stress-copy">
+        <div class="eyebrow mono">[ backpressure ]</div>
+        <h2>One slow subscriber can't slow anyone else down.</h2>
+        <p class="muted">
+          This starts a subscriber that never reads, then floods its topic. Its
+          kernel buffers fill first, then its 256-frame queue in the broker. After
+          that the broker drops messages <i>for that subscriber only</i>, and after
+          500 drops in a row it disconnects it. Watch the fleet and the chart above:
+          they keep flowing the whole time.
+        </p>
+        <button class="btn btn-danger" id="stress-btn" type="button">
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M9 1 3 9h4l-1 6 6-8H8l1-6Z" fill="currentColor"/></svg>
+          Unleash a slow subscriber
+        </button>
+        <p class="small muted" id="stress-note">Runs for a few seconds. One demo at a time across all visitors.</p>
+      </div>
+      <ol class="steps" id="steps">
+        <li class="step" data-step="1">
+          <span class="step-dot"></span>
+          <div><b>Flood</b><span class="muted" id="s1">1 KiB messages to stress/…</span></div>
+          <span class="step-val mono" id="v1">—</span>
+        </li>
+        <li class="step" data-step="2">
+          <span class="step-dot"></span>
+          <div><b>Buffers fill</b><span class="muted">kernel socket buffers, then the broker queue</span></div>
+          <span class="step-val mono" id="v2">—</span>
+        </li>
+        <li class="step" data-step="3">
+          <span class="step-dot"></span>
+          <div><b>Broker drops</b><span class="muted">for this subscriber only</span></div>
+          <span class="step-val mono" id="v3">—</span>
+        </li>
+        <li class="step" data-step="4">
+          <span class="step-dot"></span>
+          <div><b>Disconnected</b><span class="muted">ERROR SlowConsumer</span></div>
+          <span class="step-val mono" id="v4">—</span>
+        </li>
+        <li class="stress-result" id="stress-result" hidden></li>
+      </ol>
+    </section>
+
+    <!-- How it works -->
+    <section class="card how" id="how">
+      <header class="card-head">
+        <div>
+          <div class="eyebrow mono">[ how it works ]</div>
+          <h2>Built to be measured</h2>
+        </div>
+        <a class="btn btn-secondary btn-sm" href="https://github.com/preeeetham/minibroker#readme" target="_blank" rel="noopener">README →</a>
+      </header>
+      <figure class="arch">
+        <img src="/architecture.png" alt="Architecture: publishers send to a read task, which hands frames to the router; the router fans out to one bounded queue and writer per subscriber. Slow subscribers are dropped and then disconnected." loading="lazy">
+      </figure>
+      <div class="facts">
+        <div class="fact"><div class="fact-num">5.9M<span>/s</span></div><p>deliveries on Linux after batching writes into one <code>writev</code> (strace: 2M syscalls → 25k)</p></div>
+        <div class="fact"><div class="fact-num">120<span>ns</span></div><p>to route a publish across 10,000 wildcard subscriptions, using a topic trie (was 134 µs)</p></div>
+        <div class="fact"><div class="fact-num">15.4M</div><p>fuzzer executions against the parser, plus property tests and 70 end-to-end tests in CI</p></div>
+        <div class="fact"><div class="fact-num">0</div><p>payload copies on fan-out: one encoded frame shared by every subscriber via ref-counted <code>Bytes</code></p></div>
+      </div>
+      <p class="links small">
+        <a href="https://github.com/preeeetham/minibroker/blob/main/DECISIONS.md" target="_blank" rel="noopener">63 design decisions</a>
+        <span class="sep">·</span>
+        <a href="https://github.com/preeeetham/minibroker/blob/main/DEBUGGING.md" target="_blank" rel="noopener">Bugs I chased</a>
+        <span class="sep">·</span>
+        <a href="https://github.com/preeeetham/minibroker/blob/main/docs/LINUX.md" target="_blank" rel="noopener">Linux experiments</a>
+        <span class="sep">·</span>
+        <a href="https://github.com/preeeetham/minibroker/blob/main/docs/PROTOCOL.md" target="_blank" rel="noopener">Wire protocol</a>
+      </p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>minibroker · Rust + Tokio · built by <a href="https://github.com/preeeetham" target="_blank" rel="noopener">@preeeetham</a></span>
+    <span class="muted mono small">free-tier host: the first visit after a quiet spell can take ~30 s to wake up</span>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

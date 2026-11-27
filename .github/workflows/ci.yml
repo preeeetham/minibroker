@@ -26,11 +26,13 @@ jobs:
       - name: rustfmt
         run: cargo fmt --all --check
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
       - name: tests
         run: cargo test --all-targets
       - name: benches compile
         run: cargo bench --no-run
+      - name: demo builds
+        run: cargo build --features web --bin mb-web
 
   fuzz-smoke:
     name: fuzz (30 s per target)

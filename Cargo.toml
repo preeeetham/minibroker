@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.105"
+axum = { version = "0.8.9", features = ["ws"], optional = true }
 bytes = "1.12.2"
 clap = { version = "4.6.10", features = ["derive"] }
 futures = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "1.0.154", optional = true }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["codec", "rt"] }
@@ -25,3 +28,14 @@ harness = false
 [[bench]]
 name = "router"
 harness = false
+
+
+[features]
+# The live demo (mb-web): web server + WebSocket bridge. Off by default so
+# the broker itself never depends on a web framework.
+web = ["dep:axum", "dep:serde", "dep:serde_json"]
+
+[[bin]]
+name = "mb-web"
+path = "src/bin/mb-web/main.rs"
+required-features = ["web"]

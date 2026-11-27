@@ -728,3 +728,56 @@ See README "Compared with rumqttd" and `bench/results/rumqttd_comparison.*`.
 * The comparison is honest only with its caveats: rumqttd does much more
   (full MQTT, QoS 1/2, sessions, auth, bridging). This measures the QoS-0
   hot path, where minibroker is specialised.
+
+---
+
+## Live demo (`mb-web`)
+
+### D64. The demo runs the real broker in-process, and each browser tab is a real client
+* `mb-web` (behind the `web` cargo feature) starts `minibroker::Server` on a
+  loopback port, a simulated fleet (24 EVs × 3 topics × 4 Hz = 288 msg/s),
+  three simulated backend consumers (archiver `fleet/#`, battery alerts
+  `fleet/+/battery`, live map `fleet/+/gps`), and an axum server.
+* Every browser tab gets **its own broker `Client` over TCP**. The
+  WebSocket is only a relay, so subscriptions, wildcard matching, fan-out and
+  slow-consumer handling on the page are the actual broker code paths, not a
+  simulation of them.
+* *Alternatives:* a mock that animates fake numbers (dishonest), or exposing
+  the broker's TCP port publicly (browsers can't speak raw TCP).
+
+### D65. A web framework only behind a feature flag
+* **Why:** `axum`/`serde` are optional dependencies enabled by `--features
+  web`. The broker library and its default build stay free of a web stack.
+  CI builds and lints the demo with `--all-features`.
+
+### D66. Abuse limits for a public demo
+* 200 concurrent tabs; 8 subscriptions per tab; a token bucket of 4 ops/s
+  (burst 10); publishes only under `demo/` with ≤ 256 B payloads; WebSocket
+  messages ≤ 4 KiB; one backpressure demo at a time across all visitors
+  (semaphore). The broker's own limits (max connections, frame timeout) still
+  apply underneath.
+* Messages to the browser are **batched every 100 ms** and capped at 400 per
+  batch (the excess is counted, not sent). A browser on a slow network can't
+  hold up the bridge.
+
+### D67. Charts show real history immediately
+* The server keeps the last 60 one-second stats samples and sends them in the
+  first WebSocket message, so a new visitor sees a full chart instead of
+  an empty one that fills slowly. Chart series colours were run through the
+  dataviz palette validator against the dark card surface (blue `#3987e5`,
+  green `#1aae7a`, all checks pass).
+
+### D68. Assets embedded in the binary, served with `Cache-Control: no-cache`
+* Found while testing: after a redeploy the browser ran a cached old
+  `app.js` against the new server. Embedding assets (`include_str!`) makes
+  the binary self-contained, and `no-cache` makes browsers revalidate on
+  every load.
+
+### Bug found in the demo itself
+* The message feed trimmed itself to 200 rows by removing the container's
+  *last element*. That was the hidden "subscribe to see messages" placeholder,
+  so after 200 rows every update threw `Cannot set properties of null` and
+  **the feed silently froze**. Found by publishing to `demo/hello` and seeing
+  the message arrive over the WebSocket (checked by tapping the socket) but
+  never render. Fix: rows live in their own container, and only rows are
+  trimmed.
