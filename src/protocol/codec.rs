@@ -163,6 +163,31 @@ impl Frame {
                 body.clear();
                 Frame::Error { code, message }
             }
+            kind::REPLAY => {
+                let filter = get_str16(&mut body, "filter")?;
+                if body.remaining() < 4 {
+                    return Err(ProtocolError::Truncated);
+                }
+                Frame::Replay {
+                    filter,
+                    count: body.get_u32(),
+                }
+            }
+            kind::HISTORY => {
+                if body.remaining() < 16 {
+                    return Err(ProtocolError::Truncated);
+                }
+                let offset = body.get_u64();
+                let timestamp_ms = body.get_u64();
+                let topic = get_str16(&mut body, "topic")?;
+                let payload = std::mem::take(&mut body);
+                Frame::History {
+                    offset,
+                    timestamp_ms,
+                    topic,
+                    payload,
+                }
+            }
             other => return Err(ProtocolError::UnknownKind(other)),
         };
         expect_empty(&body)?;
@@ -176,6 +201,8 @@ impl Frame {
             Frame::Publish { topic, payload } => str16_len(topic)? + payload.len(),
             Frame::Ping | Frame::Pong => 0,
             Frame::Error { message, .. } => 1 + message.len(),
+            Frame::Replay { filter, .. } => str16_len(filter)? + 4,
+            Frame::History { topic, payload, .. } => 16 + str16_len(topic)? + payload.len(),
         })
     }
 
@@ -214,6 +241,23 @@ impl Frame {
                 dst.put_u8(kind::ERROR);
                 dst.put_u8(*code as u8);
                 dst.put_slice(message.as_bytes());
+            }
+            Frame::Replay { filter, count } => {
+                dst.put_u8(kind::REPLAY);
+                put_str16(dst, filter);
+                dst.put_u32(*count);
+            }
+            Frame::History {
+                offset,
+                timestamp_ms,
+                topic,
+                payload,
+            } => {
+                dst.put_u8(kind::HISTORY);
+                dst.put_u64(*offset);
+                dst.put_u64(*timestamp_ms);
+                put_str16(dst, topic);
+                dst.put_slice(payload);
             }
         }
         Ok(())
@@ -257,6 +301,16 @@ mod tests {
             Frame::Error {
                 code: ErrorCode::Malformed,
                 message: String::new(),
+            },
+            Frame::Replay {
+                filter: "fleet/+/speed".into(),
+                count: 50,
+            },
+            Frame::History {
+                offset: 41_233,
+                timestamp_ms: 1_795_770_000_000,
+                topic: "fleet/ev-07/speed".into(),
+                payload: Bytes::from_static(b"63.2"),
             },
         ]
     }

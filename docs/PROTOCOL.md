@@ -37,6 +37,8 @@ in a frame that starts with its own length.
 | 0x04 | PING        | client → broker  | empty                                  |
 | 0x05 | PONG        | broker → client  | empty                                  |
 | 0x06 | ERROR       | broker → client  | `code: u8`, `message: rest (UTF-8)`    |
+| 0x07 | REPLAY      | client → broker  | `filter: str16`, `count: u32`          |
+| 0x08 | HISTORY     | broker → client  | `offset: u64`, `timestamp_ms: u64`, `topic: str16`, `payload: rest` |
 
 The broker delivers messages to subscribers as ordinary `PUBLISH` frames, so
 a client needs only one decoder for both directions.
@@ -51,6 +53,7 @@ a client needs only one decoder for both directions.
 | 4    | slow consumer: too many messages were dropped    | yes                |
 | 5    | broker shutting down                             | yes                |
 | 6    | broker connection limit reached                  | yes                |
+| 7    | unsupported (e.g. REPLAY with persistence off)   | no                 |
 
 ## Topics and filters
 
@@ -62,6 +65,20 @@ a client needs only one decoder for both directions.
   * `#` matches zero or more trailing levels and must be the last level:
     `vehicle/#` matches `vehicle`, `vehicle/42` and `vehicle/42/speed`.
   * A wildcard must occupy a whole level (`veh+` is invalid).
+
+## Durable topics and replay
+
+* A broker started with `--data-dir DIR --durable FILTER` stores every
+  message whose topic matches `FILTER` in an append-only log, and assigns each
+  one a monotonically increasing **offset**.
+* `REPLAY {filter, count}` asks for up to `count` (max 1000) of the newest
+  stored messages matching `filter`. They arrive **oldest first** as
+  `HISTORY` frames, followed by nothing else. Send `PING` after `REPLAY`:
+  when `PONG` arrives, the replay is complete.
+* HISTORY frames are distinct from PUBLISH, so history and live messages can
+  never be confused.
+* If persistence is off, the broker answers `ERROR code=7` and keeps the
+  connection.
 
 ## Timeouts
 

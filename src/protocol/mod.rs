@@ -22,6 +22,8 @@ pub mod kind {
     pub const PING: u8 = 0x04;
     pub const PONG: u8 = 0x05;
     pub const ERROR: u8 = 0x06;
+    pub const REPLAY: u8 = 0x07;
+    pub const HISTORY: u8 = 0x08;
 }
 
 /// One protocol message.
@@ -45,6 +47,20 @@ pub enum Frame {
         code: ErrorCode,
         message: String,
     },
+    /// Ask for up to `count` of the most recent stored messages matching
+    /// `filter` (durable topics only, P15).
+    Replay {
+        filter: String,
+        count: u32,
+    },
+    /// One stored message, sent in answer to [`Frame::Replay`]. A separate
+    /// kind from PUBLISH so a client never mistakes history for live data.
+    History {
+        offset: u64,
+        timestamp_ms: u64,
+        topic: String,
+        payload: Bytes,
+    },
 }
 
 /// Error codes carried in an ERROR frame.
@@ -57,6 +73,9 @@ pub enum ErrorCode {
     SlowConsumer = 4,
     ShuttingDown = 5,
     TooManyConnections = 6,
+    /// The request needs a feature this broker has disabled (e.g. REPLAY
+    /// without persistence).
+    Unsupported = 7,
 }
 
 impl ErrorCode {
@@ -68,6 +87,7 @@ impl ErrorCode {
             4 => Self::SlowConsumer,
             5 => Self::ShuttingDown,
             6 => Self::TooManyConnections,
+            7 => Self::Unsupported,
             _ => return None,
         })
     }

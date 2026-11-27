@@ -781,3 +781,105 @@ See README "Compared with rumqttd" and `bench/results/rumqttd_comparison.*`.
   the message arrive over the WebSocket (checked by tapping the socket) but
   never render. Fix: rows live in their own container, and only rows are
   trimmed.
+
+---
+
+## P15 — Durable topics
+
+### D69. A segmented, append-only log with a CRC per record
+* **Decision:** messages on durable topics are appended to
+  `<data-dir>/<base-offset>.log` files. Each record is
+  `len | crc32 | offset | timestamp | topic | payload`. A new segment starts at
+  8 MiB (configurable), and the oldest segments are deleted past a retention cap.
+* *Alternatives:* SQLite or RocksDB (a large dependency and a different
+  problem: random access, not a stream); one file forever (no way to drop old
+  data without rewriting it); one file per topic (thousands of open
+  descriptors with many vehicles).
+* **Why:** an append-only log is how Kafka and rumqttd's router store streams.
+  Sequential writes are the fastest thing a disk does, retention is just
+  `unlink` of whole files, and offsets give every message a stable identity.
+  The CRC is what lets recovery tell a complete record from a half-written one.
+
+### D70. Group commit on a dedicated writer thread
+* **Decision:** connection tasks send the already-encoded PUBLISH `Bytes`
+  (a refcount clone, no copy) to one `mb-persist` thread. The thread blocks
+  for the first record, takes up to 1 024 more that are already waiting,
+  appends them all, then calls **one** `fsync` (policy `batch`, the default).
+  Policies `always` (fsync per record) and `never` (leave it to the OS) exist
+  for comparison.
+* **Measured** (`examples/durable_bench.rs`, M4 Pro SSD, 64 B records; on
+  macOS `sync_data` is `F_FULLFSYNC`, a real flush of the drive cache):
+
+  | strategy | records/s | per record |
+  |---|---:|---:|
+  | fsync every record | ~290 | 3.4 ms |
+  | group of 16 | ~4 600 | 215 µs |
+  | group of 256 | ~67 000 | 15 µs |
+  | group of 1 024 | ~258 000 | 3.9 µs |
+  | never fsync | ~5.5–7 M | 0.15 µs |
+
+  One real fsync costs ~3.4 ms. Group commit spreads it over the whole batch,
+  ~900× more throughput than fsync-per-record.
+* **End to end** (loadgen, 1 pub → 1 sub at 10 000 msg/s, durable topic):
+  in-memory p50 46 µs / p99 310 µs; durable `batch` p50 41 µs / p99 269 µs
+  (no visible cost); durable `always` → the writer can only fsync ~290/s, so
+  its queue fills and **publishers are held back**. Latency from schedule
+  reaches 5.3 s and 8 635 messages were never sent in the run window.
+* *Why a thread, not `tokio::fs`:* file I/O blocks. `tokio::fs` sends each
+  call to the blocking pool. One long-lived thread doing sequential appends
+  is simpler and never stalls an async worker.
+
+### D71. Persist after live delivery; wait (don't drop) when the disk is behind
+* Live subscribers are served first, so persistence adds nothing to their
+  latency. Then the frame is queued for the log with `send().await`: if the
+  disk can't keep up, *publishers of durable topics* slow down. Dropping would
+  quietly break the promise "this topic is stored". Non-durable topics never
+  touch this path.
+* **Durability window:** with `batch`, a message is on disk after the batch
+  it landed in is fsynced (typically within a few ms). Power loss inside that
+  window loses it. A graceful shutdown flushes and fsyncs everything (the
+  server calls `Persister::close()` after connections drain).
+
+### D72. Crash recovery: keep the longest valid prefix of the active segment
+* On open, the active segment is parsed record by record. The first record
+  with a bad length, a failed CRC or an invalid topic ends the valid prefix,
+  and the file is truncated there. Offsets continue from the last good record.
+* **Tested:** a unit test appends half a record (torn write) and another flips
+  one byte (corruption). Both recover to exactly the right offset.
+* **Also tried for real:** the release broker was `kill -9`ed 9 times in the
+  middle of floods of up to ~320 k messages, then restarted on the same
+  directory. Every time it reopened cleanly with contiguous offsets, and
+  **no torn tail appeared**. That's expected: a `write()` syscall lands
+  fully in the page cache even if the process dies right after. A torn
+  record needs a record split across two `write()` calls (possible when the
+  64 KiB write buffer fills mid-record) or a power loss (the page cache itself
+  is lost). The unit test covers that case directly because a process kill
+  can't reproduce it reliably.
+* New segment files are made durable with an fsync of the *directory*:
+  without it, a crash right after creating a segment can lose the file entry
+  even though its contents were synced.
+
+### D73. Replay as a separate frame pair: REPLAY → HISTORY
+* `REPLAY {filter, count}` returns up to `count` (≤ 1 000) of the newest
+  stored messages matching `filter`, oldest first, as `HISTORY {offset,
+  timestamp, topic, payload}` frames. HISTORY is a different kind from
+  PUBLISH, so a client never confuses history with live data, even if it is
+  subscribed to the same topics at the same time (tested).
+* The client knows the replay is complete through the existing PING barrier
+  (D6): HISTORY frames go through the same ordered outbound queue, so the
+  PONG arrives after the last one.
+* Reading scans segments **newest → oldest** and stops once it has `count`
+  matches, so recent history costs one segment read, not the whole log. It runs
+  on `spawn_blocking`. Reads are safe while the writer appends: a record still
+  being written fails its length/CRC check and simply isn't returned yet.
+* *Known limit:* a replay for a rare topic in a large log scans many
+  segments. A per-topic sparse index (topic → offsets per segment) would fix
+  that, and is the next step if it matters.
+
+### D74. The demo persists `fleet/#`, and the fake "archiver" is gone
+* The earlier "archiver" consumer only read and discarded messages. That was
+  misleading, so it's removed. Storage now really happens in the broker, and
+  the page's **Replay from disk** panel reads it back. The two remaining
+  simulated consumers are labelled as such in the code.
+* Render's free plan has an ephemeral disk (wiped on redeploy and on sleep),
+  so the demo keeps 48 MiB, roughly the last hour of fleet data.

@@ -3,6 +3,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::Parser;
 use minibroker::broker::{Config, Server};
+use minibroker::storage::{FsyncPolicy, LogLimits, PersistConfig};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -41,6 +42,23 @@ struct Args {
     /// Maximum simultaneous client connections.
     #[arg(long, default_value_t = 10_000)]
     max_connections: usize,
+    /// Directory for the durable log. Persistence is off unless this and at
+    /// least one --durable filter are given.
+    #[arg(long)]
+    data_dir: Option<std::path::PathBuf>,
+    /// Topic filter whose messages are stored and can be replayed
+    /// (repeatable), e.g. --durable 'fleet/#'.
+    #[arg(long = "durable")]
+    durable: Vec<String>,
+    /// When to fsync the log: always | batch | never.
+    #[arg(long, default_value = "batch")]
+    fsync: FsyncPolicy,
+    /// Roll to a new log segment at this size.
+    #[arg(long, default_value_t = 8)]
+    segment_mb: u64,
+    /// Delete the oldest segments beyond this total size.
+    #[arg(long, default_value_t = 256)]
+    retention_mb: u64,
 }
 
 #[tokio::main]
@@ -62,6 +80,19 @@ async fn main() -> anyhow::Result<()> {
         stats_interval: Duration::from_secs(args.stats_secs),
         frame_timeout: Duration::from_secs(args.frame_timeout_secs),
         max_connections: args.max_connections,
+        persistence: match (args.data_dir, args.durable.is_empty()) {
+            (Some(dir), false) => Some(PersistConfig {
+                dir,
+                filters: args.durable,
+                fsync: args.fsync,
+                limits: LogLimits {
+                    segment_bytes: args.segment_mb * 1024 * 1024,
+                    retention_bytes: args.retention_mb * 1024 * 1024,
+                },
+            }),
+            (None, false) => anyhow::bail!("--durable needs --data-dir"),
+            _ => None,
+        },
     };
 
     let server = Server::bind(&args.addr, config)

@@ -12,6 +12,15 @@ use tokio_util::codec::Framed;
 
 use crate::protocol::{ErrorCode, Frame, FrameCodec, ProtocolError};
 
+/// A stored message returned by [`Client::replay`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRecord {
+    pub offset: u64,
+    pub timestamp_ms: u64,
+    pub topic: String,
+    pub payload: Bytes,
+}
+
 /// A message delivered to a subscriber.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
@@ -115,6 +124,47 @@ impl Client {
         loop {
             match self.next_frame().await? {
                 Frame::Pong => return Ok(start.elapsed()),
+                Frame::Publish { topic, payload } => {
+                    self.pending.push_back(Message { topic, payload })
+                }
+                Frame::Error { code, message } => {
+                    return Err(ClientError::Broker { code, message });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Fetch up to `count` of the most recent stored messages matching
+    /// `filter`, oldest first. Uses the PING barrier: every HISTORY frame
+    /// for this request arrives before the PONG.
+    pub async fn replay(
+        &mut self,
+        filter: &str,
+        count: u32,
+    ) -> Result<Vec<HistoryRecord>, ClientError> {
+        self.framed
+            .feed(Frame::Replay {
+                filter: filter.to_owned(),
+                count,
+            })
+            .await?;
+        self.framed.send(Frame::Ping).await?;
+        let mut out = Vec::new();
+        loop {
+            match self.next_frame().await? {
+                Frame::Pong => return Ok(out),
+                Frame::History {
+                    offset,
+                    timestamp_ms,
+                    topic,
+                    payload,
+                } => out.push(HistoryRecord {
+                    offset,
+                    timestamp_ms,
+                    topic,
+                    payload,
+                }),
                 Frame::Publish { topic, payload } => {
                     self.pending.push_back(Message { topic, payload })
                 }

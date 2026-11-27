@@ -35,6 +35,7 @@ use super::server::Shared;
 use crate::protocol::codec::encode_publish;
 use crate::protocol::topic::{validate_filter, validate_topic};
 use crate::protocol::{ErrorCode, Frame, FrameCodec, ProtocolError};
+use crate::storage::read_tail;
 
 /// Most frames the writer hands to one `writev` call (D58). Linux caps an
 /// iovec array at 1024 entries (IOV_MAX); 256 leaves headroom and already
@@ -249,8 +250,17 @@ async fn handle_frame(
             if d.dropped > 0 {
                 debug!(id, topic, dropped = d.dropped, "subscriber queues full");
             }
+            // Live subscribers first (latency), then the durable log. The
+            // frame is the same refcounted buffer: storing it copies nothing
+            // here. If the writer is behind, this waits (D71).
+            if let Some(p) = &shared.persist
+                && p.is_durable(&topic)
+            {
+                p.append(bytes).await;
+            }
             Ok(())
         }
+        Frame::Replay { filter, count } => replay(shared, outbox, filter, count).await,
         Frame::Subscribe { filter } => {
             if let Err(e) = validate_filter(&filter) {
                 return reply_error(outbox, ErrorCode::InvalidTopic, format!("{filter:?}: {e}"))
@@ -266,11 +276,55 @@ async fn handle_frame(
         }
         Frame::Ping => reply(outbox, &Frame::Pong).await,
         // Clients have no reason to send these. Ignore rather than disconnect.
-        Frame::Pong | Frame::Error { .. } => {
+        Frame::Pong | Frame::Error { .. } | Frame::History { .. } => {
             debug!(id, ?frame, "ignoring server-only frame from client");
             Ok(())
         }
     }
+}
+
+/// Most records one REPLAY may return.
+const MAX_REPLAY: u32 = 1000;
+
+/// Answer a REPLAY with HISTORY frames, oldest first, through the normal
+/// outbound queue (so ordering with other replies holds: a PING sent after
+/// REPLAY is answered after the last HISTORY frame).
+async fn replay(shared: &Shared, outbox: &Outbox, filter: String, count: u32) -> Result<(), ()> {
+    let Some(p) = &shared.persist else {
+        return reply_error(
+            outbox,
+            ErrorCode::Unsupported,
+            "persistence is disabled".into(),
+        )
+        .await;
+    };
+    if let Err(e) = validate_filter(&filter) {
+        return reply_error(outbox, ErrorCode::InvalidTopic, format!("{filter:?}: {e}")).await;
+    }
+    let dir = p.dir().to_path_buf();
+    let count = count.min(MAX_REPLAY) as usize;
+    // Reading segment files blocks, so it runs on the blocking pool, never
+    // on an async worker thread.
+    let records = tokio::task::spawn_blocking(move || read_tail(&dir, &filter, count))
+        .await
+        .map_err(|_| ())?;
+    let records = match records {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "replay failed");
+            return reply_error(outbox, ErrorCode::Unsupported, "replay failed".into()).await;
+        }
+    };
+    for r in records {
+        let frame = Frame::History {
+            offset: r.offset,
+            timestamp_ms: r.timestamp_ms,
+            topic: r.topic,
+            payload: r.payload,
+        };
+        reply(outbox, &frame).await?;
+    }
+    Ok(())
 }
 
 async fn reply_error(outbox: &Outbox, code: ErrorCode, message: String) -> Result<(), ()> {

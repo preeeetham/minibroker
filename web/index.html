@@ -185,6 +185,99 @@
       </article>
     </section>
 
+    <!-- Durable log -->
+    <section class="card storage" id="storage">
+      <header class="card-head">
+        <div>
+          <div class="eyebrow mono">[ durable log ]</div>
+          <h2>Every fleet message is also written to disk</h2>
+          <p class="muted">
+            <code>fleet/#</code> is a durable topic. Its messages go to an append-only,
+            CRC-checked, segmented log. A writer thread appends everything that's
+            waiting, then pays for <b>one</b> <code>fsync</code> per batch (group commit).
+          </p>
+        </div>
+        <span class="chip mono">fsync: batch</span>
+      </header>
+
+      <div class="storage-grid">
+        <div class="log-side">
+          <div class="log-stats">
+            <div class="stat"><div class="stat-label mono">Stored / s</div><div class="stat-value" id="log-rate">—</div><div class="stat-sub"><span id="log-total">—</span> total</div></div>
+            <div class="stat"><div class="stat-label mono">fsyncs / s</div><div class="stat-value" id="log-fsync">—</div><div class="stat-sub">~<span id="log-batch">—</span> records each</div></div>
+            <div class="stat"><div class="stat-label mono">On disk</div><div class="stat-value" id="log-bytes">—</div><div class="stat-sub"><span id="log-segs">—</span> segments</div></div>
+            <div class="stat"><div class="stat-label mono">Offsets</div><div class="stat-value small-num" id="log-range">—</div><div class="stat-sub">oldest → next</div></div>
+          </div>
+          <div class="segbar-wrap">
+            <div class="segbar" id="segbar" aria-label="Log segments, oldest to newest"></div>
+            <div class="segbar-legend mono"><span>oldest</span><span>4 MiB segments · newest 48 MiB kept</span><span>active</span></div>
+          </div>
+          <p class="small muted bench-note">
+            Why batch: on an SSD one real <code>fsync</code> costs ~3.4 ms, so syncing every record
+            caps the log at <b>~290 msg/s</b>. Group commit of 1024 reaches <b>~258k msg/s</b>.
+          </p>
+        </div>
+
+        <div class="replay">
+          <form class="replay-form" id="replay-form" autocomplete="off">
+            <label class="select"><span class="sr">Vehicle</span>
+              <select id="replay-ev">
+                  <option value="ev-01">ev-01</option>
+                  <option value="ev-02">ev-02</option>
+                  <option value="ev-03">ev-03</option>
+                  <option value="ev-04">ev-04</option>
+                  <option value="ev-05">ev-05</option>
+                  <option value="ev-06">ev-06</option>
+                  <option value="ev-07" selected>ev-07</option>
+                  <option value="ev-08">ev-08</option>
+                  <option value="ev-09">ev-09</option>
+                  <option value="ev-10">ev-10</option>
+                  <option value="ev-11">ev-11</option>
+                  <option value="ev-12">ev-12</option>
+                  <option value="ev-13">ev-13</option>
+                  <option value="ev-14">ev-14</option>
+                  <option value="ev-15">ev-15</option>
+                  <option value="ev-16">ev-16</option>
+                  <option value="ev-17">ev-17</option>
+                  <option value="ev-18">ev-18</option>
+                  <option value="ev-19">ev-19</option>
+                  <option value="ev-20">ev-20</option>
+                  <option value="ev-21">ev-21</option>
+                  <option value="ev-22">ev-22</option>
+                  <option value="ev-23">ev-23</option>
+                  <option value="ev-24">ev-24</option>
+              </select>
+            </label>
+            <label class="select"><span class="sr">Metric</span>
+              <select id="replay-metric">
+                <option value="speed" selected>speed</option>
+                <option value="battery">battery</option>
+                <option value="gps">gps</option>
+                <option value="#">everything</option>
+              </select>
+            </label>
+            <label class="select"><span class="sr">How many</span>
+              <select id="replay-count">
+                <option value="20">last 20</option>
+                <option value="60" selected>last 60</option>
+                <option value="200">last 200</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" type="submit">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 3v4h4M3.5 7A5 5 0 1 1 3 9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Replay from disk
+            </button>
+          </form>
+          <div class="replay-head">
+            <span class="mono small" id="replay-filter">REPLAY fleet/ev-07/speed</span>
+            <span class="muted small" id="replay-meta"></span>
+          </div>
+          <svg class="replay-spark" id="replay-spark" viewBox="0 0 400 64" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="feed replay-rows" id="replay-rows" role="table" aria-label="Replayed messages"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Backpressure -->
     <section class="card stress" id="backpressure">
       <div class="stress-copy">

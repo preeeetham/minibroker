@@ -15,6 +15,7 @@ use super::router::Router;
 use super::{ClientId, Config, connection};
 use crate::protocol::codec::encode_publish;
 use crate::protocol::{ErrorCode, Frame};
+use crate::storage::{PersistSnapshot, Persister};
 use std::sync::atomic::Ordering::Relaxed;
 
 /// Topic the broker publishes its own counters on.
@@ -26,6 +27,7 @@ pub(crate) struct Shared {
     pub config: Config,
     pub router: Router,
     pub metrics: Metrics,
+    pub persist: Option<Persister>,
 }
 
 /// Read-only view of a running broker, usable after `run()` has taken the
@@ -40,6 +42,11 @@ impl BrokerHandle {
         self.shared
             .metrics
             .snapshot(self.shared.router.subscription_count())
+    }
+
+    /// Durable-log counters, if persistence is enabled.
+    pub fn persistence(&self) -> Option<PersistSnapshot> {
+        self.shared.persist.as_ref().map(|p| p.stats.snapshot())
     }
 }
 
@@ -66,11 +73,18 @@ impl Server {
         // The kernel silently caps this at somaxconn (see DEBUGGING.md #1).
         let listener = socket.listen(config.listen_backlog)?;
         warn_if_backlog_capped(config.listen_backlog);
+        // Opening the log runs crash recovery before any client connects.
+        let persist = config
+            .persistence
+            .clone()
+            .map(Persister::start)
+            .transpose()?;
         Ok(Self {
             listener,
             shared: Arc::new(Shared {
                 router: Router::new(config.slow_drop_limit),
                 metrics: Metrics::default(),
+                persist,
                 config,
             }),
         })
@@ -157,6 +171,12 @@ impl Server {
             conns.shutdown().await;
         }
         debug!("all connections closed");
+        // Everything accepted is now queued for the log: flush and fsync it
+        // so a graceful shutdown never loses stored messages.
+        if let Some(p) = &self.shared.persist {
+            p.close().await;
+            info!("durable log flushed");
+        }
         Ok(())
     }
 }

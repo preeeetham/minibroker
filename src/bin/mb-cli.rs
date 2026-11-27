@@ -36,6 +36,13 @@ enum Cmd {
         #[arg(long)]
         count: Option<u64>,
     },
+    /// Print stored history for a filter (broker needs --durable).
+    Replay {
+        filter: String,
+        /// How many of the most recent messages to fetch.
+        #[arg(long, default_value_t = 20)]
+        count: u32,
+    },
     /// Measure PING round-trip time.
     Ping {
         #[arg(long, default_value_t = 5)]
@@ -76,6 +83,17 @@ async fn main() -> anyhow::Result<()> {
                 let m = client.recv().await?;
                 println!("{} {}", m.topic, String::from_utf8_lossy(&m.payload));
                 seen += 1;
+            }
+        }
+        Cmd::Replay { filter, count } => {
+            for r in client.replay(&filter, count).await? {
+                println!(
+                    "#{:<8} {} {} {}",
+                    r.offset,
+                    r.timestamp_ms,
+                    r.topic,
+                    String::from_utf8_lossy(&r.payload)
+                );
             }
         }
         Cmd::Ping { count } => {

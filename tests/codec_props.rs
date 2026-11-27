@@ -19,10 +19,23 @@ fn arb_frame() -> impl Strategy<Value = Frame> {
         }),
         Just(Frame::Ping),
         Just(Frame::Pong),
-        (1u8..=6, s).prop_map(|(c, message)| Frame::Error {
+        (1u8..=7, s).prop_map(|(c, message)| Frame::Error {
             code: ErrorCode::from_u8(c).unwrap(),
             message,
         }),
+        (s, any::<u32>()).prop_map(|(filter, count)| Frame::Replay { filter, count }),
+        (
+            any::<u64>(),
+            any::<u64>(),
+            s,
+            proptest::collection::vec(any::<u8>(), 0..256)
+        )
+            .prop_map(|(offset, timestamp_ms, topic, p)| Frame::History {
+                offset,
+                timestamp_ms,
+                topic,
+                payload: Bytes::from(p),
+            }),
     ]
 }
 

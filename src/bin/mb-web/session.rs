@@ -34,6 +34,7 @@ enum Op {
     Sub { filter: String },
     Unsub { filter: String },
     Pub { topic: String, payload: String },
+    Replay { filter: String, count: u32 },
     Stress,
 }
 
@@ -198,6 +199,28 @@ async fn handle(
             } else {
                 client.publish(&topic, payload).await?;
                 json!({ "t": "ack", "op": "pub", "topic": topic })
+            }
+        }
+        Op::Replay { filter, count } => {
+            let filter = filter.trim().to_owned();
+            if filter.len() > 128 {
+                json!({ "t": "error", "msg": "filter too long" })
+            } else if let Err(e) = validate_filter(&filter) {
+                json!({ "t": "error", "msg": format!("invalid filter: {e}") })
+            } else {
+                let recs = client.replay(&filter, count.min(200)).await?;
+                let items: Vec<Value> = recs
+                    .into_iter()
+                    .map(|r| {
+                        json!([
+                            r.offset,
+                            r.timestamp_ms,
+                            r.topic,
+                            display_payload(&r.payload)
+                        ])
+                    })
+                    .collect();
+                json!({ "t": "replay", "filter": filter, "items": items })
             }
         }
         Op::Stress => match Arc::clone(&st.stress_slot).try_acquire_owned() {

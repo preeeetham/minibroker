@@ -14,7 +14,7 @@ wildcards, publish messages, and trigger a slow subscriber to watch the
 broker cut it off without slowing anyone else. (Free hosting: the first visit
 after a quiet spell takes ~30 s to wake up.)
 
-* **[DECISIONS.md](DECISIONS.md)**: every design decision (68 of them), the
+* **[DECISIONS.md](DECISIONS.md)**: every design decision (74 of them), the
   alternatives considered, and why.
 * **[DEBUGGING.md](DEBUGGING.md)**: real bugs found while building it, and
   how each was tracked down.
@@ -143,6 +143,25 @@ QoS 0. Both are driven by `tools/compare_rumqttd.py`.
   makes replay possible. minibroker holds nothing after delivery.
 
 
+### Durability: what an fsync costs (P15)
+
+Durable topics (`--data-dir data --durable 'fleet/#'`) go to a segmented,
+CRC-checked, append-only log. A dedicated writer thread **group-commits**:
+it appends everything that's waiting, then pays for one `fsync`.
+
+| strategy (64 B records, M4 Pro SSD) | records/s |
+|---|---:|
+| fsync every record | ~290 |
+| group commit of 1 024 | **~258 000** |
+| never fsync | ~6 M |
+
+At 10 k msg/s end to end, group commit adds no measurable latency (p99
+269 µs vs 310 µs in-memory). Fsync-per-record can't keep up and holds
+publishers back, which is exactly the trade-off the design makes visible. The log
+survived 9 `kill -9` crashes mid-flood with contiguous offsets, and recovery
+truncates torn writes (tested). `mb-cli replay 'fleet/#' --count 50` reads
+history back.
+
 ### Micro-benchmarks (criterion)
 
 | | |
@@ -202,7 +221,7 @@ docker run --rm --privileged -v "$PWD":/src minibroker-profile tools/profile/run
 
 ## Limitations (deliberate)
 
-* At-most-once delivery (QoS 0 only), with no persistence or retained messages.
+* At-most-once delivery (QoS 0 only). Durable topics can be *replayed*, but there are no per-client acknowledgements or redelivery.
 * No authentication or TLS.
 * Single node: no clustering or bridging.
 * Wildcard subscribers are matched via the trie, but the routing table sits

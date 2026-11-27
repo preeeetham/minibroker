@@ -81,15 +81,17 @@ pub async fn spawn(
     Ok(())
 }
 
-/// Backend services a real telemetry platform would run. Each one is an
-/// ordinary subscriber that drains its stream, which gives the demo
-/// realistic fan-out (one publish → several deliveries).
+/// Simulated downstream services. Each is an ordinary subscriber that only
+/// *reads* its stream (no real alerting or map behind it); they exist so
+/// the demo has realistic fan-out (one publish → several deliveries).
+///
+/// Storage is not simulated: the broker itself persists `fleet/#` to its
+/// durable log (P15), and the page's replay panel reads it back.
 pub async fn spawn_consumers(
     broker: SocketAddr,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
     for (name, filter) in [
-        ("archiver", "fleet/#"),
         ("battery-alerts", "fleet/+/battery"),
         ("live-map", "fleet/+/gps"),
     ] {

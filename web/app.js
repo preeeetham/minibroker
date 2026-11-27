@@ -70,13 +70,17 @@ function connect() {
     let m;
     try { m = JSON.parse(e.data); } catch { return; }
     switch (m.t) {
-      case "hello": $("session").textContent = "#" + m.session; break;
+      case "hello":
+        $("session").textContent = "#" + m.session;
+        requestReplay(); // show stored history straight away
+        break;
       case "history": onHistory(m); break;
       case "stats": onStats(m); break;
       case "msgs": onMessages(m); break;
       case "ack": onAck(m); break;
       case "error": toast(m.msg, "err"); break;
       case "stress": onStress(m); break;
+      case "replay": onReplay(m); break;
     }
   };
   ws.onclose = () => {
@@ -134,6 +138,7 @@ function onStats(s) {
   spark("spark-lat", state.p99, "var(--text-2)");
   spark("spark-conn", state.conn, "var(--text-2)");
   drawChart();
+  if (s.log) onLogStats(s.log);
 
   // once-a-second client-side rates
   $("feed-rate").textContent = `${compact(state.feedCount)} msg/s`;
@@ -386,6 +391,82 @@ function toast(text, kind) {
   toastTimer = setTimeout(() => (el.hidden = true), 3500);
 }
 
+/* ---------- durable log ---------- */
+const SEGMENT_BYTES = 4 * 1024 * 1024;
+function bytes(n) {
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(n >= 10 << 20 ? 0 : 1) + '<span class="unit">MB</span>';
+  if (n >= 1 << 10) return (n / (1 << 10)).toFixed(0) + '<span class="unit">KB</span>';
+  return n + '<span class="unit">B</span>';
+}
+function onLogStats(l) {
+  $("log-rate").textContent = compact(l.stored_ps);
+  $("log-total").textContent = compact(l.stored_total);
+  $("log-fsync").textContent = compact(l.fsyncs_ps);
+  $("log-batch").textContent = l.avg_batch ? l.avg_batch.toFixed(1) : "—";
+  $("log-bytes").innerHTML = bytes(l.retained_bytes);
+  $("log-segs").textContent = l.segments;
+  $("log-range").textContent = `${compact(l.first_offset)} → ${compact(l.next_offset)}`;
+  // One block per segment; the active one shows how full it is.
+  const bar = $("segbar");
+  const n = Math.max(1, l.segments);
+  if (bar.childElementCount !== n) {
+    bar.replaceChildren(...Array.from({ length: n }, () => {
+      const s = document.createElement("div"); s.className = "seg"; s.appendChild(document.createElement("i")); return s;
+    }));
+  }
+  const activeBytes = l.retained_bytes - (n - 1) * SEGMENT_BYTES;
+  [...bar.children].forEach((seg, i) => {
+    const last = i === n - 1;
+    seg.classList.toggle("active", last);
+    seg.firstChild.style.width = last ? Math.max(4, Math.min(100, (activeBytes / SEGMENT_BYTES) * 100)) + "%" : "100%";
+  });
+}
+
+function requestReplay() {
+  const ev = $("replay-ev").value, metric = $("replay-metric").value, count = +$("replay-count").value;
+  const filter = `fleet/${ev}/${metric}`;
+  $("replay-filter").textContent = `REPLAY ${filter}`;
+  $("replay-meta").textContent = "reading from disk…";
+  send({ op: "replay", filter, count });
+}
+
+function onReplay(m) {
+  const rows = $("replay-rows");
+  rows.replaceChildren();
+  const items = m.items; // oldest first
+  if (!items.length) {
+    $("replay-meta").textContent = "nothing stored yet";
+    $("replay-spark").innerHTML = "";
+    return;
+  }
+  const first = items[0], last = items[items.length - 1];
+  const span = (last[1] - first[1]) / 1000;
+  $("replay-meta").textContent = `${items.length} records · offsets ${nf.format(first[0])}–${nf.format(last[0])} · ${span < 90 ? span.toFixed(0) + " s" : (span / 60).toFixed(1) + " min"} of history`;
+  for (let i = items.length - 1; i >= 0; i--) { // newest at the top
+    const [off, ts, topic, payload] = items[i];
+    const row = document.createElement("div");
+    row.className = "feed-row";
+    const o = document.createElement("span"); o.className = "off"; o.textContent = "#" + off;
+    const t = document.createElement("span"); t.className = "t ts"; t.textContent = clock(new Date(ts)).slice(0, 11);
+    const tp = document.createElement("span"); tp.className = "tp"; tp.textContent = topic; tp.title = topic;
+    const pl = document.createElement("span"); pl.className = "pl"; pl.textContent = payload; pl.title = payload;
+    row.append(o, t, tp, pl);
+    rows.appendChild(row);
+  }
+  // Sparkline of numeric values (speed / battery), oldest → newest.
+  const vals = items.map((it) => parseFloat(it[3])).filter((v) => Number.isFinite(v));
+  const svg = $("replay-spark");
+  if (vals.length < 2 || vals.length !== items.length) { svg.innerHTML = ""; return; }
+  const max = Math.max(...vals), min = Math.min(...vals), pad = 6;
+  const x = (i) => (i / (vals.length - 1)) * 400;
+  const y = (v) => 64 - pad - ((v - min) / (max - min || 1)) * (64 - pad * 2);
+  const line = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  svg.innerHTML =
+    `<defs><linearGradient id="rg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--series-1)" stop-opacity=".25"/><stop offset="1" stop-color="var(--series-1)" stop-opacity="0"/></linearGradient></defs>` +
+    `<path d="${line}L400,64L0,64Z" fill="url(#rg)"/>` +
+    `<path d="${line}" fill="none" stroke="var(--series-1)" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`;
+}
+
 /* ---------- backpressure demo ---------- */
 function setStep(n, cls, val) {
   const el = document.querySelector(`.step[data-step="${n}"]`);
@@ -456,6 +537,8 @@ function init() {
   $("clear").addEventListener("click", () => {
     $("feed-rows").replaceChildren();
   });
+  $("replay-form").addEventListener("submit", (e) => { e.preventDefault(); requestReplay(); });
+  ["replay-ev", "replay-metric", "replay-count"].forEach((id) => $(id).addEventListener("change", requestReplay));
   $("stress-btn").addEventListener("click", (e) => {
     if (send({ op: "stress" })) {
       e.currentTarget.disabled = true;

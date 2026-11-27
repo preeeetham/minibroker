@@ -27,6 +27,7 @@ use axum::routing::get;
 use minibroker::broker::metrics::{Rates, Snapshot};
 use minibroker::broker::{BrokerHandle, Config, Server};
 use minibroker::client::Client;
+use minibroker::storage::{FsyncPolicy, LogLimits, PersistConfig, PersistSnapshot};
 use serde_json::json;
 use tokio::sync::{Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
@@ -76,6 +77,20 @@ async fn main() -> anyhow::Result<()> {
         max_connections: 600,
         frame_timeout: Duration::from_secs(10),
         stats_interval: Duration::from_secs(1),
+        // The fleet's telemetry is stored in the broker's durable log, so
+        // visitors can replay recent history. Render's free disk is
+        // ephemeral, so retention is small: ~48 MiB ≈ the last hour or so.
+        persistence: Some(PersistConfig {
+            dir: std::env::var("DATA_DIR")
+                .map(Into::into)
+                .unwrap_or_else(|_| std::env::temp_dir().join("minibroker-data")),
+            filters: vec!["fleet/#".into()],
+            fsync: FsyncPolicy::Batch,
+            limits: LogLimits {
+                segment_bytes: 4 * 1024 * 1024,
+                retention_bytes: 48 * 1024 * 1024,
+            },
+        }),
         ..Config::default()
     };
     let server = Server::bind("127.0.0.1:0", config).await?;
@@ -290,6 +305,7 @@ async fn stats_loop(
     let started = tokio::time::Instant::now();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let mut prev: Snapshot = handle.snapshot();
+    let mut prev_p: PersistSnapshot = handle.persistence().unwrap_or_default();
     let mut prev_at = tokio::time::Instant::now();
     loop {
         tokio::select! {
@@ -299,6 +315,16 @@ async fn stats_loop(
         let now = handle.snapshot();
         let at = tokio::time::Instant::now();
         let r = Rates::between(&prev, &now, (at - prev_at).as_secs_f64());
+        let p = handle.persistence().unwrap_or_default();
+        let secs = (at - prev_at).as_secs_f64().max(1e-9);
+        let stored_ps = (p.appended - prev_p.appended) as f64 / secs;
+        let fsyncs_ps = (p.fsyncs - prev_p.fsyncs) as f64 / secs;
+        let batches = p.batches - prev_p.batches;
+        let avg_batch = if batches > 0 {
+            (p.appended - prev_p.appended) as f64 / batches as f64
+        } else {
+            0.0
+        };
         let (p50, p99) = latency
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -318,6 +344,17 @@ async fn stats_loop(
             "p50_us": p50,
             "p99_us": p99,
             "uptime_s": started.elapsed().as_secs(),
+            "log": {
+                "stored_ps": stored_ps.round(),
+                "fsyncs_ps": fsyncs_ps.round(),
+                "avg_batch": (avg_batch * 10.0).round() / 10.0,
+                "stored_total": p.appended,
+                "retained_bytes": p.log.retained_bytes,
+                "segments": p.log.segments,
+                "first_offset": p.log.first_offset,
+                "next_offset": p.log.next_offset,
+                "errors": p.errors,
+            },
         });
         {
             let mut h = history.lock().unwrap_or_else(|e| e.into_inner());
@@ -333,6 +370,7 @@ async fn stats_loop(
         }
         let _ = tx.send(Arc::from(msg.to_string()));
         prev = now;
+        prev_p = p;
         prev_at = at;
     }
 }

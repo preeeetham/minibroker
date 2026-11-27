@@ -35,6 +35,9 @@ pub struct Config {
     pub frame_timeout: Duration,
     /// Connections beyond this are accepted and immediately closed.
     pub max_connections: usize,
+    /// Store messages on matching topics in an on-disk log (P15).
+    /// `None` = in-memory only, at-most-once (the default).
+    pub persistence: Option<crate::storage::PersistConfig>,
 }
 
 impl Default for Config {
@@ -49,6 +52,7 @@ impl Default for Config {
             stats_interval: Duration::from_secs(10),
             frame_timeout: Duration::from_secs(30),
             max_connections: 10_000,
+            persistence: None,
         }
     }
 }
