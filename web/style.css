@@ -417,9 +417,6 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 24px 40px; display: grid; g
 .fact-num { font-size: 28px; font-weight: 600; letter-spacing: -0.035em; color: var(--text); }
 .fact-num span { font-size: 15px; color: var(--accent); margin-left: 2px; font-weight: 500; }
 .fact p { margin: 6px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
-.links { margin: 18px 0 0; }
-.links a { color: var(--text-2); text-decoration: none; border-bottom: 1px solid var(--line-strong); transition: color 150ms, border-color 150ms; }
-.links a:hover { color: var(--accent); border-color: rgba(61,245,167,.5); }
 
 .footer {
   max-width: 1200px; margin: 0 auto; padding: 28px 24px 48px;
