@@ -14,14 +14,6 @@ wildcards, publish messages, and trigger a slow subscriber to watch the
 broker cut it off without slowing anyone else. (Free hosting: the first visit
 after a quiet spell takes ~30 s to wake up.)
 
-* **[DECISIONS.md](DECISIONS.md)**: every design decision (74 of them), the
-  alternatives considered, and why.
-* **[DEBUGGING.md](DEBUGGING.md)**: real bugs found while building it, and
-  how each was tracked down.
-* **[docs/PROTOCOL.md](docs/PROTOCOL.md)**: the wire format, byte by byte.
-* **[docs/LINUX.md](docs/LINUX.md)**: four experiments on how the OS shapes
-  the broker (fd limits, Nagle, socket buffers, epoll).
-
 ## Architecture
 
 ![minibroker architecture](docs/architecture.png)
